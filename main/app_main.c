@@ -27,13 +27,14 @@
 
 
 #include "http.h"
-
 #include "../components/mad/mad.h"
 #include "../components/mad/stream.h"
 #include "../components/mad/frame.h"
 #include "../components/mad/synth.h"
 
 #include "driver/i2s.h"
+
+#include "../components/nghttp-client/include/nghttp-client.h"
 #include "spiram_fifo.h"
 #include "playerconfig.h"
 
@@ -506,6 +507,18 @@ static void http_get_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+static void http2_get_task(void *pvParameters)
+{
+    /* Wait for the callback to set the CONNECTED_BIT in the event group. */
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+                        false, true, portMAX_DELAY);
+
+    nghttp_get("https://http2.golang.org/");
+
+    ESP_LOGI(TAG, "http_client_get stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+
+    vTaskDelete(NULL);
+}
 
 
 static void set_wifi_credentials()
@@ -555,7 +568,9 @@ void app_main()
     }
     printf("\n\nHardware initialized. Waiting for network.\n");
 
-    xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
+    // xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
+
+    xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 16384, NULL, 20, NULL, 0);
 
     // init player
     player = calloc(1, sizeof(Player));
