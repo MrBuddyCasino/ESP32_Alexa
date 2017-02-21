@@ -38,6 +38,8 @@
 #include "spiram_fifo.h"
 #include "playerconfig.h"
 
+#include "cJSON.h"
+
 #define WIFI_LIST_NUM   10
 
 
@@ -128,22 +130,7 @@ static void initialise_wifi(void)
     ESP_ERROR_CHECK( esp_wifi_start() );
 }
 
-// Reformat the 16-bit mono sample to a format we can send to I2S.
-static int convert_16bit_mono_to_8bit_stereo_padded(short s) {
 
-    // convert 16bit to 8bit and duplicate mono sample to both channels
-
-    // shift the 8 most significant bits
-    int samp = s << 16;
-
-    // clear the lower 16 bit
-    samp = (samp) & 0xffff0000;
-
-    // duplicate
-    samp = (samp >> 16) | samp;
-
-    return samp;
-}
 
 // Reformat the 16-bit mono sample to a format we can send to I2S.
 static short convert_16bit_mono_to_8bit_stereo(short s) {
@@ -246,7 +233,6 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 
 #if defined(USE_DAC)
         short samp = convert_16bit_mono_to_8bit_stereo(short_sample_buff[i]);
-        // int samp = convert_16bit_mono_to_8bit_stereo_padded(short_sample_buff[i]);
         // int samp = convert_16bit_mono_to_16bit_stereo(short_sample_buff[i]);
 #else
         int samp = convert_16bit_mono_to_16bit_stereo(short_sample_buff[i]);
@@ -570,7 +556,7 @@ void app_main()
 
     // xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
 
-    xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 16384, NULL, 20, NULL, 0);
+    xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 8192, NULL, 20, NULL, 0);
 
     // init player
     player = calloc(1, sizeof(Player));
