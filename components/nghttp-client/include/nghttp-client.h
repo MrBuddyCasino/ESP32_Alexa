@@ -41,8 +41,6 @@ typedef struct
     /* The path portion of the |uri|, including query, NULL-terminated */
     char *path;
 
-    /* The stream ID of this stream */
-    int32_t stream_id;
 } http2_request_data;
 
 
@@ -59,9 +57,11 @@ typedef struct
  */
 typedef struct
 {
+    /* details all hidden */
     nghttp2_session *session;
     http2_request_data *request_data;
     ssl_session_data *ssl_session;
+    int32_t num_outgoing_streams;
 } http2_session_data;
 
 

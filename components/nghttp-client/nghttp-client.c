@@ -184,7 +184,6 @@ static esp_err_t create_http2_request_data(http2_request_data **request_data_ptr
     size_t extra = 7;
 
     request_data->uri = uri;
-    request_data->stream_id = -1;
 
     /* authority */
     uint16_t authoritylen = url->field_data[UF_HOST].len;
@@ -322,12 +321,11 @@ static int on_header_callback(nghttp2_session *session,
         const nghttp2_frame *frame, const uint8_t *name, size_t namelen,
         const uint8_t *value, size_t valuelen, uint8_t flags, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
+    // http2_session_data *session_data = (http2_session_data *) user_data;
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
-            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->request_data->stream_id
-                            == frame->hd.stream_id) {
+            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+                // stream ID: frame->hd.stream_id
                 /* Print response headers for the initiated request. */
                 print_header(name, namelen, value, valuelen);
                 break;
@@ -341,12 +339,11 @@ static int on_header_callback(nghttp2_session *session,
 static int on_begin_headers_callback(nghttp2_session *session,
         const nghttp2_frame *frame, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
+    // http2_session_data *session_data = (http2_session_data *) user_data;
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
-            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->request_data->stream_id
-                            == frame->hd.stream_id) {
+            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+                // frame->hd.stream_id
                 ESP_LOGI(TAG, "Response headers for stream ID=%d:\n",
                         frame->hd.stream_id);
             }
@@ -360,12 +357,11 @@ static int on_begin_headers_callback(nghttp2_session *session,
 static int on_frame_recv_callback(nghttp2_session *session,
         const nghttp2_frame *frame, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
+    // http2_session_data *session_data = (http2_session_data *) user_data;
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
-            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->request_data->stream_id
-                            == frame->hd.stream_id) {
+            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+                // frame->hd.stream_id
                 ESP_LOGI(TAG, "All headers received");
             }
             break;
@@ -381,10 +377,9 @@ static int on_frame_recv_callback(nghttp2_session *session,
 static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
         int32_t stream_id, const uint8_t *data, size_t len, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
-    if (session_data->request_data->stream_id == stream_id) {
-        printf("%.*s", len, data);
-    }
+    // http2_session_data *session_data = (http2_session_data *) user_data;
+    printf("%.*s", len, data);
+
     return 0;
 }
 
@@ -398,14 +393,16 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
     http2_session_data *session_data = (http2_session_data *) user_data;
     int rv;
 
-    if (session_data->request_data->stream_id == stream_id) {
-        ESP_LOGE(TAG, "Stream %d closed with error_code=%u\n", stream_id,
-                error_code);
+    ESP_LOGI(TAG, "closed stream %d with error_code=%u", stream_id, error_code);
+
+    if (session_data->num_outgoing_streams > 0) {
+        ESP_LOGE(TAG, "no more open streams, terminating session");
         rv = nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
         if (rv != 0) {
             return NGHTTP2_ERR_CALLBACK_FAILURE;
         }
     }
+
     return 0;
 }
 
@@ -520,7 +517,7 @@ static esp_err_t submit_request(http2_session_data *session_data,
         return ESP_FAIL;
     }
 
-    request_data->stream_id = stream_id;
+    session_data->num_outgoing_streams++;
 
     return ESP_OK;
 }
@@ -791,13 +788,68 @@ esp_err_t nghttp_new_connection(http2_session_data **http2_session_ptr, char *ur
 }
 
 
+/*
+ * Read from the connection
+ */
+esp_err_t read_write_loop(int ret, http2_session_data* http2_session)
+{
+    /* Read HTTP response */
+    const int buf_len = 512;
+    uint8_t* buf = calloc(buf_len, sizeof(uint8_t));
+    if(buf == NULL) {
+        ESP_LOGE(TAG, "failed to allocate %d byte buffer", buf_len);
+    }
+    bzero(buf, buf_len);
+    ssize_t datalen;
+    esp_err_t cont = ESP_OK;
+
+    do {
+        ret = mbedtls_ssl_read(http2_session->ssl_session->ssl_context, buf,
+                buf_len - 1);
+        if (ret == MBEDTLS_ERR_SSL_WANT_READ
+                || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
+            // continue;
+        }
+        if (ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+            ret = 0;
+            break;
+        }
+        if (ret < 0) {
+            ESP_LOGE(TAG, "mbedtls_ssl_read returned -0x%x", -ret);
+            break;
+        }
+        if (ret == 0) {
+            ESP_LOGI(TAG, "connection closed");
+            break;
+        }
+        datalen = ret;
+        ESP_LOGI(TAG, "%d bytes read", datalen);
+
+        ssize_t readlen = nghttp2_session_mem_recv(http2_session->session, buf,
+                datalen);
+        if (readlen < 0) {
+            ESP_LOGW(TAG, "Fatal error: %s", nghttp2_strerror((int ) readlen));
+            cont = ESP_FAIL;
+        }
+
+        // if we have data to send, do it here
+        if (session_send(http2_session) != 0) {
+            cont = ESP_FAIL;
+        }
+
+    } while (ret > 0 && cont == ESP_OK);
+
+    delete_http2_session_data(http2_session);
+    free(buf);
+
+    return cont;
+}
+
 /* Get resource denoted by the |uri|. The debug and error messages are
  printed in stderr, while the response body is printed in stdout. */
 esp_err_t nghttp_get(char *uri)
 {
     int ret;
-    const int buf_len = 512;
-    uint8_t *buf = calloc(buf_len, sizeof(uint8_t));
     http2_session_data *http2_session;
 
     if((ret = nghttp_new_connection(&http2_session, uri) != 0)) {
@@ -815,9 +867,10 @@ esp_err_t nghttp_get(char *uri)
     // add custom headers just for fun
     const nghttp2_nv user_hdrs[1] =
     {
-        MAKE_NV2("User-Agent", "NGHTTP2/1.19.0 (ESP32)")
+        MAKE_NV2("user-agent", "NGHTTP2/1.19.0")
     };
 
+    /* initial stream */
     submit_request(http2_session, user_hdrs, 1, "GET", NULL);
 
     if (session_send(http2_session) != 0) {
@@ -825,57 +878,8 @@ esp_err_t nghttp_get(char *uri)
         return ESP_FAIL;
     }
 
-
     /* Read HTTP response */
-
-    bzero(buf, buf_len);
-    ssize_t datalen;
-    esp_err_t cont = ESP_OK;
-
-    do {
-        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, buf_len - 1 );
-
-        if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            // continue;
-        }
-
-        if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-            ret = 0;
-            break;
-        }
-
-        if(ret < 0)
-        {
-            ESP_LOGE(TAG, "mbedtls_ssl_read returned -0x%x", -ret);
-            break;
-        }
-
-        if(ret == 0)
-        {
-            ESP_LOGI(TAG, "connection closed");
-            break;
-        }
-
-        datalen = ret;
-        ESP_LOGI(TAG, "%d bytes read", datalen);
-
-        ssize_t readlen = nghttp2_session_mem_recv(http2_session->session,
-                buf, datalen);
-        if (readlen < 0) {
-            ESP_LOGW(TAG, "Fatal error: %s", nghttp2_strerror((int ) readlen));
-            cont = ESP_FAIL;
-        }
-
-        // if we have data to send, do it here
-        if (session_send(http2_session) != 0) {
-            cont = ESP_FAIL;
-        }
-
-    } while (ret > 0 && cont == ESP_OK);
-
-    delete_http2_session_data(http2_session);
-    free(buf);
-
+    esp_err_t cont = read_write_loop(ret, http2_session);
     return cont;
 }
 
