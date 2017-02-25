@@ -294,9 +294,9 @@ static void init_i2s_dac()
     i2s_config_t i2s_config = {
         .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN,          // Only TX
         .sample_rate = SAMPLE_RATE,
-        .bits_per_sample = 16,                                                   // Only 8-bit DAC support
+        .bits_per_sample = 8,                                                   // Only 8-bit DAC support
         .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,                           // 2-channels
-        .communication_format = I2S_COMM_FORMAT_PCM_SHORT,
+        .communication_format = I2S_COMM_FORMAT_I2S_MSB,
         .dma_buf_count = 14,                                                    // number of buffers, 128 max.
         .dma_buf_len = 32*2,                                                    // size of each buffer
         .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1                                // Interrupt level 1

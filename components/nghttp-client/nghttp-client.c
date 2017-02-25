@@ -141,65 +141,110 @@ void destroy_mbedtls_context(mbedtls_ssl_context *ssl,
 
 
 
-static http2_stream_data *create_http2_stream_data(const char *uri,
-        struct http_parser_url *u)
+static esp_err_t create_http2_request_data(http2_request_data **request_data_ptr, char *uri)
 {
+    int ret;
+
+    /* allocate http2_request_data */
+    *request_data_ptr = calloc(1, sizeof(http2_request_data));
+    if(*request_data_ptr == NULL) {
+        ESP_LOGE(TAG, "Could not allocate http2_request_data");
+        return ESP_ERR_NO_MEM;
+    }
+    http2_request_data *request_data = (*request_data_ptr);
+
+
+    /* Parse the |uri| and stores its components in |url| */
+
+    struct http_parser_url *url = calloc(1, sizeof(struct http_parser_url));
+    ret = http_parser_parse_url(uri, strlen(uri), 0, url);
+    if (ret != 0) {
+        ESP_LOGE(TAG, "Could not parse URI %s", uri);
+        return ESP_FAIL;
+    }
+
+
+    /* schema */
+    request_data->scheme = strndup(&uri[url->field_data[UF_SCHEMA].off], url->field_data[UF_SCHEMA].len);
+
+    /* host */
+    request_data->host = strndup(&uri[url->field_data[UF_HOST].off], url->field_data[UF_HOST].len);
+
+
+    /* explicit or default ports for http(s) */
+    if (url->field_set & (1 << UF_PORT)) {
+        request_data->port = url->port;
+    } else {
+        // assume: 4 = http, 5 = https
+        request_data->port = (url->field_data[UF_SCHEMA].len == 5) ? 443 : 80;
+    }
+
+
     /* MAX 5 digits (max 65535) + 1 ':' + 1 NULL (because of snprintf) */
     size_t extra = 7;
-    http2_stream_data *stream_data = malloc(sizeof(http2_stream_data));
 
-    stream_data->uri = uri;
-    stream_data->u = u;
-    stream_data->stream_id = -1;
+    request_data->uri = uri;
+    request_data->stream_id = -1;
 
-    stream_data->authoritylen = u->field_data[UF_HOST].len;
-    stream_data->authority = calloc(stream_data->authoritylen + extra, sizeof(char));
-    memcpy(stream_data->authority, &uri[u->field_data[UF_HOST].off],
-            u->field_data[UF_HOST].len);
-    if (u->field_set & (1 << UF_PORT)) {
-        stream_data->authoritylen += (size_t) snprintf(
-                stream_data->authority + u->field_data[UF_HOST].len, extra,
-                ":%u", u->port);
+    /* authority */
+    uint16_t authoritylen = url->field_data[UF_HOST].len;
+    request_data->authority = calloc(authoritylen + extra, sizeof(char));
+    memcpy(request_data->authority,
+            &uri[url->field_data[UF_HOST].off],
+            url->field_data[UF_HOST].len);
+    /* maybe add port */
+    if (url->field_set & (1 << UF_PORT)) {
+        authoritylen += (size_t) snprintf(request_data->authority + authoritylen,
+                extra, ":%u", url->port);
     }
+    request_data->authority[authoritylen] = '\0';
 
     /* If we don't have path in URI, we use "/" as path. */
-    stream_data->pathlen = 1;
-    if (u->field_set & (1 << UF_PATH)) {
-        stream_data->pathlen = u->field_data[UF_PATH].len;
+    uint16_t pathlen = 1;
+    if (url->field_set & (1 << UF_PATH)) {
+        pathlen = url->field_data[UF_PATH].len;
     }
-    if (u->field_set & (1 << UF_QUERY)) {
+    if (url->field_set & (1 << UF_QUERY)) {
         /* +1 for '?' character */
-        stream_data->pathlen += (size_t) (u->field_data[UF_QUERY].len + 1);
+        pathlen += (size_t) (url->field_data[UF_QUERY].len + 1);
     }
 
-    stream_data->path = malloc(stream_data->pathlen);
-    if (u->field_set & (1 << UF_PATH)) {
-        memcpy(stream_data->path, &uri[u->field_data[UF_PATH].off],
-                u->field_data[UF_PATH].len);
+    /* +1 for \0 */
+    request_data->path = malloc(pathlen + 1);
+    if (url->field_set & (1 << UF_PATH)) {
+        memcpy(request_data->path, &uri[url->field_data[UF_PATH].off],
+                url->field_data[UF_PATH].len);
     } else {
-        stream_data->path[0] = '/';
+        request_data->path[0] = '/';
     }
-    if (u->field_set & (1 << UF_QUERY)) {
-        stream_data->path[stream_data->pathlen - u->field_data[UF_QUERY].len - 1] =
-                '?';
+
+    if (url->field_set & (1 << UF_QUERY)) {
+        request_data->path[pathlen - url->field_data[UF_QUERY].len - 1] = '?';
         memcpy(
-                stream_data->path + stream_data->pathlen
-                        - u->field_data[UF_QUERY].len,
-                &uri[u->field_data[UF_QUERY].off], u->field_data[UF_QUERY].len);
+                request_data->path + pathlen - url->field_data[UF_QUERY].len,
+                &uri[url->field_data[UF_QUERY].off], url->field_data[UF_QUERY].len);
     }
+    request_data->path[pathlen] = '\0';
 
-    return stream_data;
+
+    free(url);
+
+    return ESP_OK;
 }
 
-static void delete_http2_stream_data(http2_stream_data *stream_data)
+
+static void delete_http2_request_data(http2_request_data *request_data)
 {
-    free(stream_data->path);
-    free(stream_data->authority);
-    free(stream_data);
+    free(request_data->scheme);
+    free(request_data->host);
+    free(request_data->path);
+    free(request_data->authority);
+    free(request_data);
 }
+
 
 /* Initializes |session_data| */
-static esp_err_t create_http2_session_data(http2_session_data **session_data_ptr)
+static esp_err_t alloc_http2_session_data(http2_session_data **session_data_ptr)
 {
     *session_data_ptr = calloc(1, sizeof(http2_session_data) );
     if((*session_data_ptr) == NULL) {
@@ -209,6 +254,7 @@ static esp_err_t create_http2_session_data(http2_session_data **session_data_ptr
 
     return ESP_OK;
 }
+
 
 static void delete_http2_session_data(http2_session_data *session_data)
 {
@@ -220,9 +266,9 @@ static void delete_http2_session_data(http2_session_data *session_data)
 
     nghttp2_session_del(session_data->session);
     session_data->session = NULL;
-    if (session_data->stream_data) {
-        delete_http2_stream_data(session_data->stream_data);
-        session_data->stream_data = NULL;
+    if (session_data->request_data) {
+        delete_http2_request_data(session_data->request_data);
+        session_data->request_data = NULL;
     }
     free(session_data);
 }
@@ -280,7 +326,7 @@ static int on_header_callback(nghttp2_session *session,
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
             if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->stream_data->stream_id
+                    && session_data->request_data->stream_id
                             == frame->hd.stream_id) {
                 /* Print response headers for the initiated request. */
                 print_header(name, namelen, value, valuelen);
@@ -299,7 +345,7 @@ static int on_begin_headers_callback(nghttp2_session *session,
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
             if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->stream_data->stream_id
+                    && session_data->request_data->stream_id
                             == frame->hd.stream_id) {
                 ESP_LOGI(TAG, "Response headers for stream ID=%d:\n",
                         frame->hd.stream_id);
@@ -318,7 +364,7 @@ static int on_frame_recv_callback(nghttp2_session *session,
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
             if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE
-                    && session_data->stream_data->stream_id
+                    && session_data->request_data->stream_id
                             == frame->hd.stream_id) {
                 ESP_LOGI(TAG, "All headers received");
             }
@@ -336,7 +382,7 @@ static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
         int32_t stream_id, const uint8_t *data, size_t len, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
-    if (session_data->stream_data->stream_id == stream_id) {
+    if (session_data->request_data->stream_id == stream_id) {
         printf("%.*s", len, data);
     }
     return 0;
@@ -352,7 +398,7 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
     http2_session_data *session_data = (http2_session_data *) user_data;
     int rv;
 
-    if (session_data->stream_data->stream_id == stream_id) {
+    if (session_data->request_data->stream_id == stream_id) {
         ESP_LOGE(TAG, "Stream %d closed with error_code=%u\n", stream_id,
                 error_code);
         rv = nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR);
@@ -367,7 +413,7 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
 /**
  *  *session_data is our handle
  */
-static int initialize_nghttp2_session(http2_session_data *session_data)
+static int register_session_callbacks(http2_session_data *session_data)
 {
     int ret = 0;
 
@@ -400,7 +446,7 @@ static int initialize_nghttp2_session(http2_session_data *session_data)
 
     nghttp2_session_callbacks_del(callbacks);
 
-    return 0;
+    return ret;
 }
 
 static esp_err_t send_client_connection_header(http2_session_data *session_data)
@@ -438,21 +484,17 @@ static esp_err_t submit_request(http2_session_data *session_data,
 {
 
     int32_t stream_id;
-    http2_stream_data *stream_data = session_data->stream_data;
-    const char *uri = stream_data->uri;
-    const struct http_parser_url *u = stream_data->u;
+    http2_request_data *request_data = session_data->request_data;
 
-    /* default headers */
-    nghttp2_nv hdrs[] = {
-        MAKE_NV2(":method", method),
-        MAKE_NV(":scheme", &uri[u->field_data[UF_SCHEMA].off],
-                u->field_data[UF_SCHEMA].len),
-        MAKE_NV(":authority", stream_data->authority, stream_data->authoritylen),
-        MAKE_NV(":path", stream_data->path, stream_data->pathlen)
+    /* create pseudo-headers */
+    nghttp2_nv default_hdrs[] = {
+        MAKE_NV(":method",      method,                 strlen(method)),
+        MAKE_NV(":scheme",      request_data->scheme,   strlen(request_data->scheme)),
+        MAKE_NV(":authority",   request_data->authority,strlen(request_data->authority)),
+        MAKE_NV(":path",        request_data->path,     strlen(request_data->path))
     };
 
     /* combine with user headers */
-    /*
     nghttp2_nv hdrs[ARRLEN(default_hdrs) + user_hdr_len];
 
     for(int i = 0; i < ARRLEN(default_hdrs); i++) {
@@ -462,15 +504,15 @@ static esp_err_t submit_request(http2_session_data *session_data,
     for(int i = 0; i < user_hdr_len; i++) {
         hdrs[i + ARRLEN(default_hdrs)] = user_hdrs[i];
     }
-    */
 
     ESP_LOGI(TAG, "Request headers:");
     print_headers(hdrs, ARRLEN(hdrs));
 
     /* submit request */
 
-    stream_id = nghttp2_submit_request(session_data->session, NULL, hdrs,
-            ARRLEN(hdrs), NULL, stream_data);
+    // TODO: headers
+    stream_id = nghttp2_submit_request(session_data->session, NULL, default_hdrs,
+            ARRLEN(default_hdrs), NULL, request_data);
 
     if (stream_id < 0) {
         ESP_LOGE(TAG, "Could not submit HTTP request: %s",
@@ -478,7 +520,8 @@ static esp_err_t submit_request(http2_session_data *session_data,
         return ESP_FAIL;
     }
 
-    stream_data->stream_id = stream_id;
+    request_data->stream_id = stream_id;
+
     return ESP_OK;
 }
 
@@ -523,8 +566,10 @@ esp_err_t free_ssl_session_data(ssl_session_data *session)
     if(session->ssl_context != NULL)
         free(session->ssl_context);
 
+    /* don't free, conf is shared between contexts
     if(session->ssl_context->conf != NULL)
         free(session->ssl_context->conf);
+    */
 
     if(session->server_fd != NULL)
         free(session->server_fd);
@@ -537,7 +582,7 @@ esp_err_t free_ssl_session_data(ssl_session_data *session)
 /*
  * Make an encrypted TLS connection.
  */
-esp_err_t initialize_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint16_t port)
+esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint16_t port)
 {
     int ret;
 
@@ -700,44 +745,30 @@ esp_err_t initialize_ssl_connection(ssl_session_data **ssl_session_ptr, char *ho
     return ESP_OK;
 }
 
+
 /* establish SSL connection and create a new session */
-esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr, const char *uri)
+esp_err_t nghttp_new_connection(http2_session_data **http2_session_ptr, char *uri)
 {
-    struct http_parser_url *url = calloc(1, sizeof(struct http_parser_url));
-    char *host;
-    uint16_t port;
     int ret;
     ssl_session_data *ssl_session;
+    http2_request_data *request_data;
 
-
-    /* Parse the |uri| and stores its components in |url| */
-    ret = http_parser_parse_url(uri, strlen(uri), 0, url);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "Could not parse URI %s", uri);
-        return ESP_FAIL;
-    }
-
-    host = strndup(&uri[(*url).field_data[UF_HOST].off], (*url).field_data[UF_HOST].len);
-
-    if ((*url).field_set & (1 << UF_PORT)) {
-        port = (*url).port;
-    } else {
-        port = ((*url).field_data[UF_SCHEMA].len == 5) ? 443 : 80;
+    /* create and initialize request data */
+    if((ret = create_http2_request_data(&request_data, uri)) != ESP_OK) {
+        delete_http2_request_data(request_data);
+        return ret;
     }
 
 
     /* connect using tls */
 
-    ret = initialize_ssl_connection(&ssl_session, host, port);
+    ret = open_ssl_connection(&ssl_session, request_data->host, request_data->port);
     if (ret != ESP_OK) {
         free_ssl_session_data(ssl_session);
+        delete_http2_request_data(request_data);
         ESP_LOGE(TAG, "TLS connection failed");
         return ret;
     }
-
-    /* not sure if OK here? */
-    //free(host);
-    //host = NULL;
 
 
     /* transport layer ready, starting http2 */
@@ -745,12 +776,16 @@ esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr, const char 
     ESP_LOGI(TAG, "Writing HTTP request...");
 
     /* allocate http2 session */
-    if((ret = create_http2_session_data(http2_session_ptr)) != 0) {
+    if((ret = alloc_http2_session_data(http2_session_ptr)) != 0) {
         return ret;
     }
 
-    (*http2_session_ptr)->stream_data = create_http2_stream_data(uri, url);
-    (*http2_session_ptr)->ssl_session = ssl_session;
+
+    http2_session_data *http2_session = (*http2_session_ptr);
+    http2_session->request_data = request_data;
+    http2_session->ssl_session = ssl_session;
+
+    ESP_LOGI(TAG, "http2_session_data at %p", &http2_session);
 
     return ESP_OK;
 }
@@ -758,24 +793,33 @@ esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr, const char 
 
 /* Get resource denoted by the |uri|. The debug and error messages are
  printed in stderr, while the response body is printed in stdout. */
-esp_err_t nghttp_get(const char *uri)
+esp_err_t nghttp_get(char *uri)
 {
     int ret;
-    uint8_t buf[512];
+    const int buf_len = 512;
+    uint8_t *buf = calloc(buf_len, sizeof(uint8_t));
     http2_session_data *http2_session;
 
-    if(nghttp_new_session(&http2_session, uri) != 0) {
-        return ESP_FAIL;
+    if((ret = nghttp_new_connection(&http2_session, uri) != 0)) {
+        return ret;
     }
 
     // register callbacks
-    if(initialize_nghttp2_session(http2_session) != 0) {
-        return ESP_FAIL;
+    if((ret = register_session_callbacks(http2_session)) != 0) {
+        return ret;
     }
 
     // send request
     send_client_connection_header(http2_session);
-    submit_request(http2_session, NULL, 0, "GET", NULL);
+
+    // add custom headers just for fun
+    const nghttp2_nv user_hdrs[1] =
+    {
+        MAKE_NV2("User-Agent", "NGHTTP2/1.19.0 (ESP32)")
+    };
+
+    submit_request(http2_session, user_hdrs, 1, "GET", NULL);
+
     if (session_send(http2_session) != 0) {
         delete_http2_session_data(http2_session);
         return ESP_FAIL;
@@ -784,12 +828,12 @@ esp_err_t nghttp_get(const char *uri)
 
     /* Read HTTP response */
 
-    bzero(buf, sizeof(buf));
+    bzero(buf, buf_len);
     ssize_t datalen;
     esp_err_t cont = ESP_OK;
 
     do {
-        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) - 1 );
+        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, buf_len - 1 );
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             // continue;
@@ -817,7 +861,6 @@ esp_err_t nghttp_get(const char *uri)
 
         ssize_t readlen = nghttp2_session_mem_recv(http2_session->session,
                 buf, datalen);
-
         if (readlen < 0) {
             ESP_LOGW(TAG, "Fatal error: %s", nghttp2_strerror((int ) readlen));
             cont = ESP_FAIL;
@@ -825,13 +868,13 @@ esp_err_t nghttp_get(const char *uri)
 
         // if we have data to send, do it here
         if (session_send(http2_session) != 0) {
-            // delete_http2_session_data(http2_session);
             cont = ESP_FAIL;
         }
 
     } while (ret > 0 && cont == ESP_OK);
 
     delete_http2_session_data(http2_session);
+    free(buf);
 
     return cont;
 }
