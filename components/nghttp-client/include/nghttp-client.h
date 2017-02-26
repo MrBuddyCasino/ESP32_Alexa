@@ -68,5 +68,8 @@ typedef struct
 
 esp_err_t nghttp_get(char *uri);
 
+esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct);
+esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct);
+
 
 #endif /* COMPONENTS_NGHTTP_NGHTTP_CLIENT_H_ */

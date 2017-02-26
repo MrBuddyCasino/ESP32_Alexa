@@ -404,6 +404,27 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
     return 0;
 }
 
+static int min(int a, int b) {
+    return a < b ? a : b;
+}
+
+
+/* fixes assertion error in:
+ * assert(nghttp2_buf_avail(buf) >= datamax);
+ */
+ssize_t data_source_read_length_callback (
+    nghttp2_session *session, uint8_t frame_type, int32_t stream_id,
+    int32_t session_remote_window_size, int32_t stream_remote_window_size,
+    uint32_t remote_max_frame_size, void *user_data)
+{
+    ssize_t len = 8192;
+    len = min(len, session_remote_window_size);
+    len = min(len, stream_remote_window_size);
+    len = min(len, remote_max_frame_size);
+
+    return len;
+}
+
 
 /**
  *  *session_data is our handle
@@ -436,6 +457,10 @@ static int register_session_callbacks(http2_session_data *session_data)
 
     nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks,
             on_begin_headers_callback);
+
+    // optional
+    nghttp2_session_callbacks_set_data_source_read_length_callback(callbacks,
+            data_source_read_length_callback);
 
     nghttp2_session_client_new(&session_data->session, callbacks, session_data);
 
@@ -885,7 +910,7 @@ esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr,
 
 
 
-/* Make a GET request. */
+/* Make a one-off GET request. */
 esp_err_t nghttp_get(char *uri)
 {
     esp_err_t ret;
@@ -900,3 +925,36 @@ esp_err_t nghttp_get(char *uri)
 
     return ret;
 }
+
+
+/* Make a one-off POST request. */
+esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct)
+{
+    esp_err_t ret;
+    http2_session_data *http2_session;
+
+    ret = nghttp_new_session(
+            &http2_session,
+            uri, "POST",
+            data_provider_struct,
+            on_data_chunk_recv_callback,
+            on_stream_close_callback);
+
+    return ret;
+}
+
+esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct)
+{
+    esp_err_t ret;
+    http2_session_data *http2_session;
+
+    ret = nghttp_new_session(
+            &http2_session,
+            uri, "PUT",
+            data_provider_struct,
+            on_data_chunk_recv_callback,
+            on_stream_close_callback);
+
+    return ret;
+}
+

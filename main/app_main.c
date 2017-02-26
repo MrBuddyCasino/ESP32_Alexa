@@ -40,6 +40,8 @@
 
 #include "cJSON.h"
 
+#include "nghttp2/nghttp2.h"
+
 #define WIFI_LIST_NUM   10
 
 
@@ -493,13 +495,51 @@ static void http_get_task(void *pvParameters)
     vTaskDelete(NULL);
 }
 
+
+static const char *postdata = "this is just a test";
+
+ssize_t posterboy(
+        nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length,
+        uint32_t *data_flags, nghttp2_data_source *source, void *user_data)
+{
+    /*
+    int fd = source->fd;
+    ssize_t r;
+
+    while ((r = read(fd, buf, length)) == -1 && errno == EINTR)
+      ;
+
+    if (r == -1) {
+      return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+    }
+
+    if (r == 0) {
+      *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    }
+
+    return r;
+    */
+
+    *data_flags |= NGHTTP2_DATA_FLAG_EOF;
+    size_t r = length < strlen(postdata) ? length : strlen(postdata);
+    memcpy(buf, postdata, r);
+
+    return r;
+}
+
 static void http2_get_task(void *pvParameters)
 {
     /* Wait for the callback to set the CONNECTED_BIT in the event group. */
     xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
                         false, true, portMAX_DELAY);
 
-    nghttp_get("https://http2.golang.org/");
+    // nghttp_get("https://http2.golang.org/");
+
+    nghttp2_data_provider data_provider_struct = {
+            .read_callback = posterboy
+    };
+
+    nghttp_put("https://http2.golang.org/ECHO", &data_provider_struct);
 
     ESP_LOGI(TAG, "http_client_get stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
