@@ -1,23 +1,30 @@
-ESP32 MP3 decoder
+ESP32 Alexa Client
 =======================
-This is a simple web radio streamer. It connects to a web radio station via wifi, decodes the MP3
-stream and outputs the audio data to an I2S codec.
+This is a work in progress version of an Alexa client.
 
-This project is a port of Sprite\_TM's awesome MP3 web radio project for the ESP8266: https://github.com/espressif/ESP8266_MP3_DECODER
+## Status
 
-
-## What Changed
-
-The SPI RAM is not needed anymore, the ESP32 has enough memory by itself.
-We can also use the built-in 8Bit DAC instead of the external I2S codec (not yet working).
+<ul>
+    <li>mbedTLS done</li>
+    <li>nghttp2 done</li>
+    <li>Alexa API in progress</li>
+    <li>mic I2S input TODO</li>
+    <li>response I2S output TODO</li>
+</ul>
 
 ## Configuration
 
 Configuration options are kept in /main/include/playerconfig.h.
 
-Setting wifi options via AP\_NAME and AP\_PASS environment variables doesn't work currently, so you need to edit WIFI\_AP\_NAME and WIFI\_AP\_PASS in playerconfig.h.
 
-To configure your radio station, just modify PLAY\_SERVER, PLAY\_PATH and PLAY\_PORT.
+## Alexa Authentication
+
+You need to have an authentication token, which currently lives in TOKEN defined in components/alexa/alexa.c.
+
+For now you need to create your own token, see here on how to do that:
+
+https://developer.amazon.com/public/solutions/alexa/alexa-voice-service/docs/authorizing-your-alexa-enabled-product-from-a-website
+
 
 ## Downloading Required Software
 
@@ -67,6 +74,10 @@ If you're using the MAX98357A, connect GND to ground and Vin to +5V (or +3.3V if
 
 The ESP32 has a built-in 8-Bit DAC that we can use. Unfortunately that part isn't working yet, patches welcome!
 The functionality is activated by uncommenting "#define USE_DAC" in playerconfig.h.
+
+## Connecting the I2S microphone
+
+TODO
 
 ## Breadboard Example
 
