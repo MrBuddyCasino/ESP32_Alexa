@@ -41,6 +41,7 @@
 #include "cJSON.h"
 
 #include "nghttp2/nghttp2.h"
+#include "alexa.h"
 
 #define WIFI_LIST_NUM   10
 
@@ -547,6 +548,20 @@ static void http2_get_task(void *pvParameters)
 }
 
 
+static void alexa_task(void *pvParameters)
+{
+    /* Wait for the callback to set the CONNECTED_BIT in the event group. */
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+                        false, true, portMAX_DELAY);
+
+    alexa_init();
+
+    ESP_LOGI(TAG, "alexa_task stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+
+    vTaskDelete(NULL);
+}
+
+
 static void set_wifi_credentials()
 {
     wifi_config_t current_config;
@@ -576,6 +591,7 @@ static void set_wifi_credentials()
     esp_wifi_connect();
 }
 
+
 void app_main()
 {
     printf("starting app_main()\n");
@@ -595,8 +611,9 @@ void app_main()
     printf("\n\nHardware initialized. Waiting for network.\n");
 
     // xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
+    // xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 8192, NULL, 20, NULL, 0);
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
 
-    xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 8192, NULL, 20, NULL, 0);
 
     // init player
     player = calloc(1, sizeof(Player));

@@ -16,3 +16,5 @@ sdkconfig: sdkconfig.defaults
 
 menuconfig: sdkconfig
 defconfig: sdkconfig
+
+CFLAGS += -DMBEDTLS_DEBUG_C -DDEBUGBUILD

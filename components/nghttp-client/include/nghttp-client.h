@@ -57,14 +57,20 @@ typedef struct
  */
 typedef struct
 {
-    /* details all hidden */
+    /* nghttp2_session is hidden */
     nghttp2_session *session;
-    http2_request_data *request_data;
     ssl_session_data *ssl_session;
     int32_t num_outgoing_streams;
+    void *user_data;
 } http2_session_data;
 
 
+esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr,
+        char *uri, char *method,
+        nghttp2_nv *headers,  size_t hdr_len,
+        nghttp2_data_provider *data_provider_struct,
+        nghttp2_on_data_chunk_recv_callback recv_callback,
+        nghttp2_on_stream_close_callback stream_close_callback);
 
 esp_err_t nghttp_get(char *uri);
 

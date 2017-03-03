@@ -8,3 +8,4 @@
 #
 
 COMPONENT_SRCDIRS := .
+COMPONENT_EMBED_FILES := what_time.raw
