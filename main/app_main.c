@@ -34,13 +34,14 @@
 
 #include "driver/i2s.h"
 
-#include "../components/nghttp-client/include/nghttp-client.h"
 #include "spiram_fifo.h"
 #include "playerconfig.h"
 
 #include "cJSON.h"
 
 #include "nghttp2/nghttp2.h"
+
+#include "../components/nghttp2/include/nghttp2_client.h"
 #include "alexa.h"
 
 #define WIFI_LIST_NUM   10
@@ -534,8 +535,11 @@ static void http2_get_task(void *pvParameters)
     xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
                         false, true, portMAX_DELAY);
 
-    // nghttp_get("https://http2.golang.org/");
+    /*
+    nghttp_get("https://http2.golang.org/");
+    nghttp_get("https://192.168.1.2:8443/examples/servlets/servlet/HelloWorldExample");
 
+    */
     nghttp2_data_provider data_provider_struct = {
             .read_callback = posterboy
     };

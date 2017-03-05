@@ -8,9 +8,13 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
-#include "nghttp-client.h"
+
+#include "nghttp2/nghttp2.h"
 #include "cJSON.h"
 #include "esp_log.h"
+
+#include "../nghttp2/include/nghttp2_client.h"
+
 
 typedef enum
 {
@@ -31,7 +35,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIDqdQoAHTirZBVKJ58usrUY6DrDk4WgDGAxQuWSWSRMM8jU2MpXUZowKzCyi1BX1DPXqvrv9lVVYL5AVnM3wOnaQRHFSFCFr6Nkg-IeOs7uz_Fxdv4vXM_YVf9rJ-lukQm6elxalCm9HsjsmKkfFW_9wZHZihQNhUpO0UUPBefmel1YMZn9h5a3V4swBRJD0G0XeBh8g7rY_PXbeCizQk46CS8HvmpyH0HkmGv7PrNwXgH3eUCZRA-YGMM55oH5dCkLwbU9kd-SeKl-32LKYPX_y3QsKlkfDk0R2iAEgmxMIDHBAl-Phl-mVjCWWpWxwDddP43zml63--n6uYrSyxv4ezrXPccyEsIG-vLCuY70-fgnP0iT1QwHkVnOg-YoZTRoGMhLp5Jgv2t-eh2ayaMm_GETGvsE077lhAWXtw53sHhzvliBh5DHATDDSW_lZigStqOm2vthO4LyGrh-ENak_1CofL7T8XiBFxfc8e7iy9OAd4i8pZTBJCy71vzDwSl3eHqoE4SmSH58bVdatUrsKkHzKM85LjSqA-W0o7BDV8A"
+#define TOKEN "Bearer Atza|IwEBIHHEqCJjOwbNkDfHeA_48BgQ1gLmVwVSXq97t32PUBzEGpSOThNbXBHzsVcECMie-Igd41QrwoEA82-ASrZBOfSwL01gvrQ-gi5ooN9wK_dlYwO1BujvQkCVJdEZbSsVI6VMQWiI_oYjDPhk_-FetVVnRxp9-mD-DnJJVqrljDDjYP4XlebzDOJoQ5yHP3JuOK54hD-ebW1t9_dNhlLJ9VzaV8ZwScHJpQIZ_IuSsGP1MlA06zfz4s-r1Dgb2_T_tQTrRjWfgeZPSFiL2CFi5iNGwZDS6nSnua9ILgdhnwByC1I2l4TwhLZ5X4laUSxrYsL8etuIC1lDvrrPEl7RB0xul0tfLpyUH9eSVnR5msFhZ4jNtIoGaMyw1Xr1VBfUicxeBa6f_wmb7pLgioiWXNmMJK5W8r7vFNTFuFxgfew4_gNfxTBaZty1_Df3ZRllk0XuBLbCgmQAk2VbBLJlHX5gYlD6W_0379xmdgC1nXah4eiGb6qCAEwPGwDuZxfSnN-SqswkWEFlCYMAsZkwxqbckP2Hll5w79NIm32i9BEFnw"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF BOUNDARY_LINE "--"
@@ -214,8 +218,11 @@ void alexa_init()
             MAKE_NV2("content-type", HDR_FORM_DATA)
     };
 
-    esp_err_t ret = nghttp_new_session(&http2_session, uri_events, "POST",
-            hdrs, 2, data_provider_struct, recv_callback,
+    esp_err_t ret = nghttp_new_request(&http2_session,
+            uri_events, "POST",
+            hdrs, 2,
+            data_provider_struct,
+            recv_callback,
             stream_close_callback);
 
     // has now been copied by nghttp2

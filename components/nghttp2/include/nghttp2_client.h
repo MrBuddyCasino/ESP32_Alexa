@@ -15,6 +15,7 @@
 
 #include "nghttp2/nghttp2.h"
 
+#include "http_parser.h"
 
 /*
  * user data that is associated with a stream
@@ -41,6 +42,10 @@ typedef struct
     /* The path portion of the |uri|, including query, NULL-terminated */
     char *path;
 
+    struct http_parser_url *u;
+    uint16_t authoritylen;
+    uint16_t pathlen;
+
 } http2_request_data;
 
 
@@ -60,20 +65,24 @@ typedef struct
     /* nghttp2_session is hidden */
     nghttp2_session *session;
     ssl_session_data *ssl_session;
-    int32_t num_outgoing_streams;
+    uint8_t num_outgoing_streams;
     void *user_data;
+
+    int32_t stream_id;
+    http2_request_data *stream_data;
+
 } http2_session_data;
 
 
-esp_err_t nghttp_new_session(http2_session_data **http2_session_ptr,
+esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
         char *uri, char *method,
         nghttp2_nv *headers,  size_t hdr_len,
         nghttp2_data_provider *data_provider_struct,
         nghttp2_on_data_chunk_recv_callback recv_callback,
         nghttp2_on_stream_close_callback stream_close_callback);
 
-esp_err_t nghttp_get(char *uri);
 
+esp_err_t nghttp_get(char *uri);
 esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct);
 esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct);
 
