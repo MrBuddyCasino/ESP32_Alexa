@@ -365,9 +365,14 @@ static int on_frame_recv_callback(nghttp2_session *session,
     // http2_session_data *session_data = (http2_session_data *) user_data;
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
+            print_headers(frame->headers.nva, frame->headers.nvlen);
             if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
                 ESP_LOGI(TAG, "All headers received");
             }
+            break;
+
+        case NGHTTP2_GOAWAY:
+            // TODO
             break;
 
         default:
@@ -552,18 +557,6 @@ static esp_err_t submit_request(http2_session_data *session_data,
     return stream_id;
 }
 
-/* Serialize the frame and send (or buffer) the data to
- bufferevent. */
-static esp_err_t session_send(http2_session_data *session_data)
-{
-    int rv = nghttp2_session_send(session_data->session);
-    if (rv != 0) {
-        ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(rv));
-        return rv;
-    }
-
-    return ESP_OK;
-}
 
 esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
 {
@@ -657,6 +650,14 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
          destroy_mbedtls_context(ssl_context, server_fd, ret);
          return ESP_FAIL;
      }
+
+    /* restrict cypher suites */
+    int cypher[3];
+    memset( (void * ) cypher, 0, sizeof( cypher ) );
+    cypher[0] = MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256;
+    cypher[1] = MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384;
+    cypher[2] = NULL;
+    mbedtls_ssl_conf_ciphersuites(conf, cypher);
 
     /*
      ESP_LOGI(TAG, "Loading the CA root certificate...");
@@ -917,8 +918,8 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
         return stream_id;
     }
 
-    /* starts sending data */
-    if ((ret = session_send(http2_session)) != 0 && ret != NGHTTP2_ERR_WOULDBLOCK) {
+    /* start sending data */
+    if ((ret = nghttp2_session_send(http2_session->session)) != 0 && ret != NGHTTP2_ERR_DEFERRED) {
     	ESP_LOGI(TAG, "session_send() returned %d",ret);
     	free_http2_request_data(request_data);
         free_http2_session_data(http2_session);

@@ -13,7 +13,7 @@
 #include "cJSON.h"
 #include "esp_log.h"
 
-#include "../nghttp2/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 
 
 typedef enum
@@ -31,15 +31,16 @@ typedef struct
 static char *uri_directives =
         "https://avs-alexa-eu.amazon.com/v20160207/directives";
 static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
+// static char *uri_events = "https://192.168.101.20:8443/test-server/";
 
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIHHEqCJjOwbNkDfHeA_48BgQ1gLmVwVSXq97t32PUBzEGpSOThNbXBHzsVcECMie-Igd41QrwoEA82-ASrZBOfSwL01gvrQ-gi5ooN9wK_dlYwO1BujvQkCVJdEZbSsVI6VMQWiI_oYjDPhk_-FetVVnRxp9-mD-DnJJVqrljDDjYP4XlebzDOJoQ5yHP3JuOK54hD-ebW1t9_dNhlLJ9VzaV8ZwScHJpQIZ_IuSsGP1MlA06zfz4s-r1Dgb2_T_tQTrRjWfgeZPSFiL2CFi5iNGwZDS6nSnua9ILgdhnwByC1I2l4TwhLZ5X4laUSxrYsL8etuIC1lDvrrPEl7RB0xul0tfLpyUH9eSVnR5msFhZ4jNtIoGaMyw1Xr1VBfUicxeBa6f_wmb7pLgioiWXNmMJK5W8r7vFNTFuFxgfew4_gNfxTBaZty1_Df3ZRllk0XuBLbCgmQAk2VbBLJlHX5gYlD6W_0379xmdgC1nXah4eiGb6qCAEwPGwDuZxfSnN-SqswkWEFlCYMAsZkwxqbckP2Hll5w79NIm32i9BEFnw"
+#define TOKEN "Bearer Atza|IwEBIPHAJFhDF1cykoFWhy7FrHH0jMjsivbxULWl344Y-t6L-3PhPkZVVN9UX6McSvuvAhlFfbfHIo2hXNrdVVlrwVOFG6xxw2RKLsaRL6kRibHqNKwxtA16ixERKkA2h7y6TZB_-Z8A--BGdvoopqst1msDSLLUtoHzvZ_T0RSM0qrXjqWBpuE0IZ040PF8Ddq0tftP337osY7VhbgxsWwtc90ufpGHc3QmkfoaEry87UvS_lEQ13MF_GWQyjyLqf3z2RBb3rDJGATKq-kZ-6FYH28AdSPEsurhF95u6nDTspw6-oGmRMubHgg0tcvYp2pAVcF0cl95rp7voL-7T5sc6ihH8_GeS-Das-pU_Zj-KyFjNrY0NkNtfT8upCpRzBc3vzM6KOa4XvZOMWvDD11h5Z6DkYDDVQUwsNJsUg_H29aOx92wJ-mc4rIP4_xzmL2QqCvHIldmUqNTnmucrVDkgea1PMxr8i_kwvWhDDqQGjfdvtlO2Ze9i7nzjBwvgy1En9hOKiAFD4Bnk9_1QggrjGzfJdAfwkEmKdknekc4pNqStA"
 #define BOUNDARY_TERM "nghttp2123456789"
-#define BOUNDARY_LINE "--" BOUNDARY_TERM NL
-#define BOUNDARY_EOF BOUNDARY_LINE "--"
-#define HDR_FORM_DATA "multipart/form-data; boundary=" BOUNDARY_TERM
+#define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
+#define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
+#define HDR_FORM_DATA "multipart/form-data; boundary=\"" BOUNDARY_TERM "\""
 
 #define HDR_DISP_META "Content-Disposition: form-data; name=\"metadata\"" NL
 #define HDR_TYPE_JSON "Content-Type: application/json; charset=UTF-8" NL
@@ -79,7 +80,7 @@ static char* create_json_metadata()
     return rendered;
 }
 
-static bool did_yield = true;
+static bool did_yield = false;
 
 /* send data  */
 ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
@@ -95,7 +96,6 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
     if(!did_yield) {
         did_yield = true;
         // return NGHTTP2_ERR_DEFERRED;
-        // return NGHTTP2_ERR_WOULDBLOCK;
     }
 
     switch (next_action) {
@@ -123,11 +123,6 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
             break;
 
         case AUDIO_DATA:
-            // *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-            // alexa_session->next_action = DONE;
-            if(alexa_session->next_action == DONE)
-                break;
-
 
             if(alexa_session->file_pos == 0)
                 alexa_session->file_pos = file_start;
@@ -139,10 +134,7 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
             memcpy(buf, pos, bytes_written);
 
             if(buf_length > remaining) {
-                *data_flags |= NGHTTP2_DATA_FLAG_EOF;
                 alexa_session->next_action = DONE;
-            } else {
-                *data_flags |= NGHTTP2_DATA_FLAG_NONE;
             }
 
             alexa_session->file_pos += bytes_written;
@@ -150,6 +142,8 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
             break;
 
         case DONE:
+            bytes_written = strlen(BOUNDARY_EOF);
+            memcpy(buf, BOUNDARY_EOF, bytes_written);
             *data_flags |= NGHTTP2_DATA_FLAG_EOF;
             break;
     }
@@ -202,10 +196,10 @@ void alexa_init()
 {
 
     http2_session_data *http2_session;
+
     alexa_session *alexa_session = calloc(1, sizeof(alexa_session));
     alexa_session->next_action = META_HEADERS;
     // http2_session->user_data = alexa_session;
-
 
     nghttp2_data_provider *data_provider_struct = calloc(1,
             sizeof(nghttp2_data_provider));
@@ -231,5 +225,4 @@ void alexa_init()
     if(ret != 0)
         return;
 
-    // submit_request(http2_session, user_hdrs, 1, method, data_provider_struct);
 }
