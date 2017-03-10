@@ -441,6 +441,7 @@ ssize_t data_source_read_length_callback (
  *  *session_data is our handle
  */
 static int register_session_callbacks(http2_session_data *session_data,
+                        nghttp2_on_header_callback on_hdr_callback,
                         nghttp2_on_data_chunk_recv_callback recv_callback,
                         nghttp2_on_stream_close_callback stream_close_callback)
 {
@@ -466,12 +467,12 @@ static int register_session_callbacks(http2_session_data *session_data,
             stream_close_callback);
 
     nghttp2_session_callbacks_set_on_header_callback(callbacks,
-            on_header_callback);
+            on_hdr_callback);
 
     nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks,
             on_begin_headers_callback);
 
-    // optional
+    // optional: send buffer size
     nghttp2_session_callbacks_set_data_source_read_length_callback(callbacks,
             data_source_read_length_callback);
 
@@ -872,6 +873,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
 					char *uri, char *method,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
+			        nghttp2_on_header_callback hdr_callback,
 					nghttp2_on_data_chunk_recv_callback recv_callback,
 			        nghttp2_on_stream_close_callback stream_close_callback)
 {
@@ -902,7 +904,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     }
 
     // register callbacks
-    if((ret = register_session_callbacks(http2_session, recv_callback, stream_close_callback)) != 0) {
+    if((ret = register_session_callbacks(http2_session, hdr_callback, recv_callback, stream_close_callback)) != 0) {
         free_http2_request_data(request_data);
         free_http2_session_data(http2_session);
         return ret;
@@ -957,6 +959,7 @@ esp_err_t nghttp_get(char *uri)
             uri, "GET",
             hdrs, 2,
             NULL,
+            on_header_callback,
             on_data_chunk_recv_callback,
             on_stream_close_callback);
 
@@ -975,6 +978,7 @@ esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct)
             uri, "POST",
             NULL, 0,
             data_provider_struct,
+            on_header_callback,
             on_data_chunk_recv_callback,
             on_stream_close_callback);
 
@@ -991,6 +995,7 @@ esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct)
             uri, "PUT",
             NULL, 0,
             data_provider_struct,
+            on_header_callback,
             on_data_chunk_recv_callback,
             on_stream_close_callback);
 

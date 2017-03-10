@@ -75,11 +75,12 @@ typedef struct
 
 
 esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
-        char *uri, char *method,
-        nghttp2_nv *headers,  size_t hdr_len,
-        nghttp2_data_provider *data_provider_struct,
-        nghttp2_on_data_chunk_recv_callback recv_callback,
-        nghttp2_on_stream_close_callback stream_close_callback);
+                    char *uri, char *method,
+                    nghttp2_nv *headers,  size_t hdr_len,
+                    nghttp2_data_provider *data_provider_struct,
+                    nghttp2_on_header_callback hdr_callback,
+                    nghttp2_on_data_chunk_recv_callback recv_callback,
+                    nghttp2_on_stream_close_callback stream_close_callback);
 
 
 esp_err_t nghttp_get(char *uri);

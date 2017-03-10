@@ -36,7 +36,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIPHAJFhDF1cykoFWhy7FrHH0jMjsivbxULWl344Y-t6L-3PhPkZVVN9UX6McSvuvAhlFfbfHIo2hXNrdVVlrwVOFG6xxw2RKLsaRL6kRibHqNKwxtA16ixERKkA2h7y6TZB_-Z8A--BGdvoopqst1msDSLLUtoHzvZ_T0RSM0qrXjqWBpuE0IZ040PF8Ddq0tftP337osY7VhbgxsWwtc90ufpGHc3QmkfoaEry87UvS_lEQ13MF_GWQyjyLqf3z2RBb3rDJGATKq-kZ-6FYH28AdSPEsurhF95u6nDTspw6-oGmRMubHgg0tcvYp2pAVcF0cl95rp7voL-7T5sc6ihH8_GeS-Das-pU_Zj-KyFjNrY0NkNtfT8upCpRzBc3vzM6KOa4XvZOMWvDD11h5Z6DkYDDVQUwsNJsUg_H29aOx92wJ-mc4rIP4_xzmL2QqCvHIldmUqNTnmucrVDkgea1PMxr8i_kwvWhDDqQGjfdvtlO2Ze9i7nzjBwvgy1En9hOKiAFD4Bnk9_1QggrjGzfJdAfwkEmKdknekc4pNqStA"
+#define TOKEN "Bearer Atza|IwEBIG8BaZzJ6q29D94DvYQ6zlPucbWau3N3n5w_oKE9yI-TJb4JVJsDX0JciAAUtGG6WrR6CCyE6xTMAHsu8gu5qA7u9qB5VkYL5m9pl_MhYq_DuJl89q3h0kCFZhgBMbTVxy4OVVsNY4JkVNhJn1q7vZz6o6aN3Vn8ZzRrVDXpbEROsbBTQw_wB2ZvZXPr6Osf_oRv6Ru8kTZ2WteSCAJQijoznIyuM7baHJYu1GZhDPd-HkGK7dopxQoTaO4xBJ4SvmIcCq5Qr1GlaSzCin_CpgdgobQEO_xu8VKvu1cTrwlPYDFOg_UtZdej0Sz2oGr9DMLRbk5mZFIVFPl3ZKElaaLEdvKDzsA4q23WgIuRAs2pde9dk_eTtNzmTUWZab7KaWxSVG1TQ9h1BhSJk5D4FiXm1e1hg3zz_AEZwT_wOzLb-G5KK3760Xk3lIdLq1EtLx3fyJV2FBjaqtKRCMmDSxXzFecR7T6MnINx04383xvQXBKCUOaS2ux1cgxYBr0J-ts2NHzPVXy6uvOze9L2VGz_GDwXftaghHUvH-jWZddj6w"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -154,6 +154,40 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
     return bytes_written;
 }
 
+/* receive header */
+int header_callback(nghttp2_session *session,
+                      const nghttp2_frame *frame,
+                      const uint8_t *name, size_t namelen,
+                      const uint8_t *value, size_t valuelen,
+                      uint8_t flags, void *user_data)
+{
+    http2_session_data *session_data = (http2_session_data *) user_data;
+
+    switch (frame->hd.type) {
+        case NGHTTP2_HEADERS:
+        if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+            /* Print response headers for the initiated request. */
+            printf("%s: %s\n", name, value);
+
+            // parse boundary term
+            if(strcmp("content-type", (char*)name) == 0) {
+                char* start = strstr((char*)value, "boundary=");
+                if(start != NULL) {
+                    start += strlen("boundary=");
+                    char* end = strstr(start, ";");
+                    if(end != NULL) {
+                        char* boundary_term = strndup(start, end - start);
+                        ESP_LOGI(TAG, "found boundary: %s", boundary_term);
+                    }
+                }
+            }
+        }
+        break;
+    }
+
+    return 0;
+}
+
 
 /* receive data */
 int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
@@ -216,6 +250,7 @@ void alexa_init()
             uri_events, "POST",
             hdrs, 2,
             data_provider_struct,
+            header_callback,
             recv_callback,
             stream_close_callback);
 
