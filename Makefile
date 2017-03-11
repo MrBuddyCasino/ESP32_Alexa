@@ -17,8 +17,9 @@ sdkconfig: sdkconfig.defaults
 menuconfig: sdkconfig
 defconfig: sdkconfig
 
-# add the following flags to enable
-# mbedTLS debug output: -DMBEDTLS_DEBUG_C 
-# nghttp2 debug output: -DDEBUGBUILD
+# debug flags:
+# mbedTLS: -DMBEDTLS_DEBUG_C 
+# nghttp2: -DDEBUGBUILD
+# multipart_parser: -DDEBUG_MULTIPART
 
 CFLAGS += -DMBEDTLS_SSL_SRV_RESPECT_CLIENT_PREFERENCE

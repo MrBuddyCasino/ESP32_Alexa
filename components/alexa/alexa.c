@@ -14,18 +14,32 @@
 #include "esp_log.h"
 
 #include "nghttp2_client.h"
+#include "multipart_parser.h"
 
 
 typedef enum
 {
     META_HEADERS, META_JSON, AUDIO_HEADERS, AUDIO_DATA, DONE
-} NEXT_ACTION;
+} PART_TYPE;
 
 typedef struct
 {
-    NEXT_ACTION next_action;
+    PART_TYPE next_action;
     uint8_t *file_pos;
+} alexa_request;
+
+typedef struct
+{
+    multipart_parser* m_parser;
+    PART_TYPE current_part;
+} alexa_response;
+
+typedef struct
+{
+    alexa_request *request;
+    alexa_response *response;
 } alexa_session;
+
 
 /* Europe: alexa-eu / America: alexa-na */
 static char *uri_directives =
@@ -36,7 +50,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIG8BaZzJ6q29D94DvYQ6zlPucbWau3N3n5w_oKE9yI-TJb4JVJsDX0JciAAUtGG6WrR6CCyE6xTMAHsu8gu5qA7u9qB5VkYL5m9pl_MhYq_DuJl89q3h0kCFZhgBMbTVxy4OVVsNY4JkVNhJn1q7vZz6o6aN3Vn8ZzRrVDXpbEROsbBTQw_wB2ZvZXPr6Osf_oRv6Ru8kTZ2WteSCAJQijoznIyuM7baHJYu1GZhDPd-HkGK7dopxQoTaO4xBJ4SvmIcCq5Qr1GlaSzCin_CpgdgobQEO_xu8VKvu1cTrwlPYDFOg_UtZdej0Sz2oGr9DMLRbk5mZFIVFPl3ZKElaaLEdvKDzsA4q23WgIuRAs2pde9dk_eTtNzmTUWZab7KaWxSVG1TQ9h1BhSJk5D4FiXm1e1hg3zz_AEZwT_wOzLb-G5KK3760Xk3lIdLq1EtLx3fyJV2FBjaqtKRCMmDSxXzFecR7T6MnINx04383xvQXBKCUOaS2ux1cgxYBr0J-ts2NHzPVXy6uvOze9L2VGz_GDwXftaghHUvH-jWZddj6w"
+#define TOKEN "Bearer Atza|IwEBIFwaogzxzd-OQz1QWpBxW0DsYD8efwkioGImLBSX4dDGd6UDvnkLoxBOyrxBB5oKEf0LiCYhz_idr1Y8prKXvd1YCrJ6iEwkwyA5lU1UJiXQa12KAF6pwwCTS77YbNF2qk84i0BcIk3zFegAxLO1KQ96vDgOa0Z296HDvtHGoo5c2JzOtNI79rJRXK0JrFigszoUzyR6NekhzkwcrLtcQmkE3LvWpEkOeRjgRr4OVu4sUqZr-K0p9vtfAIFaX5_iy-YaOkiixCBWYleUfM_5SM_7ilrQ9nHSFW2DcYfyZ7UrJPFEr_0kSTe1J9UvGXSBZlAmYfQ_HrCcsZlyY7GFJ8grdFSAafI4Hkhek8AIFCwLjbXKsSQUDFy8_hax28-6_rs2S3QhZrHpGUM87-Xd0f7gLLUKAtvxM7aINRpUSvkO8INbwQD9XtVtzXDHRdlJnUUUaL0jHDq2TtVdzer7y1L8ov1-fsFlAQu-l-fABG0BLFLxP4uX7kxtDU9a_HAy_Iph0sfcklYMyZ4709OAct2di-ilTmo5o4dNghAJZ69efQ"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -82,16 +96,76 @@ static char* create_json_metadata()
 
 static bool did_yield = false;
 
+
+/* multipart callbacks */
+int on_header_field(multipart_parser *parser, const char *at, size_t length) {
+    alexa_response *alexa_response = multipart_parser_get_data(parser);
+
+    printf("on_header_field %.*s\n", (int)length, at);
+    return 0;
+}
+int on_header_value(multipart_parser *parser, const char *at, size_t length) {
+    alexa_response *alexa_response = multipart_parser_get_data(parser);
+
+    printf("on_header_value %.*s\n", (int)length, at);
+    // assumes audio on application/octet-stream
+    return 0;
+}
+int on_part_data(multipart_parser *parser, const char *at, size_t length) {
+    alexa_response *alexa_response = multipart_parser_get_data(parser);
+
+    // printf("%.*s: ", length, at);
+    return 0;
+}
+
+int on_part_data_begin(multipart_parser *parser)
+{
+    alexa_response *alexa_response = multipart_parser_get_data(parser);
+    printf("on_part_data_begin\n");
+
+    // start MP3 decoder
+    if(alexa_response->current_part == AUDIO_DATA)
+    {
+        ;
+    }
+
+    return 0;
+}
+
+int on_headers_complete(multipart_parser *parser)   { printf("on_headers_complete\n"); return 0; }
+int on_part_data_end(multipart_parser *parser)      { printf("on_part_data_end\n"); return 0; }
+int on_body_end(multipart_parser *parser)           { printf("on_body_end\n"); return 0; }
+
+void init_multipart_parser(alexa_response *alexa_response, char *boundary_term)
+{
+    ESP_LOGI(TAG, "init multipart_parser: %s", boundary_term);
+
+    multipart_parser_settings *callbacks = calloc(1, sizeof(multipart_parser_settings));
+
+    callbacks->on_header_field = on_header_field;
+    callbacks->on_header_value = on_header_value;
+    callbacks->on_headers_complete = on_headers_complete;
+    callbacks->on_part_data = on_part_data;
+    callbacks->on_part_data_begin = on_part_data_begin;
+    callbacks->on_part_data_end = on_part_data_end;
+    callbacks->on_body_end = on_body_end;
+
+    multipart_parser* m_parser = multipart_parser_init(boundary_term, callbacks);
+    multipart_parser_set_data(m_parser, alexa_response);
+    alexa_response->m_parser = m_parser;
+}
+
+
 /* send data  */
 ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
         uint8_t *buf, size_t buf_length, uint32_t *data_flags,
         nghttp2_data_source *data_source, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_session *alexa_session = data_source->ptr;
+    alexa_request *alexa_session = data_source->ptr;
 
     ssize_t bytes_written = 0;
-    NEXT_ACTION next_action = alexa_session->next_action;
+    PART_TYPE next_action = alexa_session->next_action;
 
     if(!did_yield) {
         did_yield = true;
@@ -149,7 +223,7 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
     }
 
     printf("writing %d bytes to stream_id: %d, buf length: %d\n", bytes_written, stream_id, buf_length);
-    printf("%.*s\n", bytes_written, buf);
+    // printf("%.*s\n", bytes_written, buf);
 
     return bytes_written;
 }
@@ -162,6 +236,7 @@ int header_callback(nghttp2_session *session,
                       uint8_t flags, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
+    alexa_session *alexa_session = session_data->user_data;
 
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
@@ -176,8 +251,12 @@ int header_callback(nghttp2_session *session,
                     start += strlen("boundary=");
                     char* end = strstr(start, ";");
                     if(end != NULL) {
+                        // make room for '--' prefix
+                        start -= 2;
                         char* boundary_term = strndup(start, end - start);
-                        ESP_LOGI(TAG, "found boundary: %s", boundary_term);
+                        boundary_term[0] = '-';
+                        boundary_term[1] = '-';
+                        init_multipart_parser(alexa_session->response, boundary_term);
                     }
                 }
             }
@@ -193,9 +272,17 @@ int header_callback(nghttp2_session *session,
 int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data)
 {
-    printf("%.*s", len, data);
+    http2_session_data *session_data = (http2_session_data *) user_data;
+    alexa_session *alexa_session = session_data->user_data;
+
+    if(alexa_session->response->m_parser != NULL) {
+        multipart_parser_execute(alexa_session->response->m_parser, (char*)data, len);
+    }
+
+    // printf("%.*s", len, data);
     return 0;
 }
+
 
 int stream_close_callback(nghttp2_session *session, int32_t stream_id,
         uint32_t error_code, void *user_data)
@@ -232,13 +319,15 @@ void alexa_init()
     http2_session_data *http2_session;
 
     alexa_session *alexa_session = calloc(1, sizeof(alexa_session));
-    alexa_session->next_action = META_HEADERS;
-    // http2_session->user_data = alexa_session;
+    alexa_session->request = calloc(1, sizeof(alexa_request));
+    alexa_session->request->next_action = META_HEADERS;
+    alexa_session->response = calloc(1, sizeof(alexa_response));
+
 
     nghttp2_data_provider *data_provider_struct = calloc(1,
             sizeof(nghttp2_data_provider));
     data_provider_struct->read_callback = data_source_read_callback;
-    data_provider_struct->source.ptr = alexa_session;
+    data_provider_struct->source.ptr = alexa_session->request;
 
     // add headers
     nghttp2_nv hdrs[2] = {
@@ -247,6 +336,7 @@ void alexa_init()
     };
 
     esp_err_t ret = nghttp_new_request(&http2_session,
+            alexa_session,
             uri_events, "POST",
             hdrs, 2,
             data_provider_struct,
@@ -254,10 +344,8 @@ void alexa_init()
             recv_callback,
             stream_close_callback);
 
-    // has now been copied by nghttp2
+    // struct has now been copied by nghttp2
     free(data_provider_struct);
 
-    if(ret != 0)
-        return;
-
+    return;
 }

@@ -805,7 +805,7 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
     bzero(buf, sizeof(buf));
 
     do {
-        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) - 1 );
+        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) );
         ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -870,6 +870,7 @@ static void event_loop_task(void *pvParameters)
 
 /* Make a new request. */
 esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
+                    void *user_data,
 					char *uri, char *method,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
@@ -888,6 +889,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
         return ret;
     }
     http2_session = (*http2_session_ptr);
+    http2_session->user_data = user_data;
 
     /* create and initialize request data */
     if((ret = create_http2_request_data(&request_data, uri)) != 0) {
@@ -956,6 +958,7 @@ esp_err_t nghttp_get(char *uri)
 
     ret = nghttp_new_request(
             &http2_session,
+            NULL,
             uri, "GET",
             hdrs, 2,
             NULL,
@@ -975,6 +978,7 @@ esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct)
 
     ret = nghttp_new_request(
             &http2_session,
+            NULL,
             uri, "POST",
             NULL, 0,
             data_provider_struct,
@@ -992,6 +996,7 @@ esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct)
 
     ret = nghttp_new_request(
             &http2_session,
+            NULL,
             uri, "PUT",
             NULL, 0,
             data_provider_struct,

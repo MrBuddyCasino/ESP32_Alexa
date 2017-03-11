@@ -75,6 +75,7 @@ typedef struct
 
 
 esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
+                    void *user_data,
                     char *uri, char *method,
                     nghttp2_nv *headers,  size_t hdr_len,
                     nghttp2_data_provider *data_provider_struct,
