@@ -21,7 +21,7 @@
 #define TAG "http_client"
 
 
-esp_err_t http_client_get(char *host, char *port, char *path, stream_reader_cb callback)
+int http_client_get(char *host, char *port, char *path, stream_reader_cb callback, void *user_data)
 {
     const struct addrinfo hints = {
         .ai_family = AF_INET,
@@ -83,16 +83,16 @@ esp_err_t http_client_get(char *host, char *port, char *path, stream_reader_cb c
     bzero(recv_buf, sizeof(recv_buf));
     ssize_t numBytes;
 
-    esp_err_t cont = ESP_OK;
+    esp_err_t cont = 0;
     do {
         numBytes = read(sock, recv_buf, sizeof(recv_buf)-1);
         // ESP_LOGI(TAG, "received %d bytes", sizeof(recv_buf));
-        cont = (*callback)(recv_buf, numBytes);
-    } while(numBytes > 0 && cont == ESP_OK);
+        cont = (*callback)(recv_buf, numBytes, user_data);
+    } while(numBytes > 0 && cont == 0);
 
     ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d\r\n", numBytes, errno);
     close(sock);
     ESP_LOGI(TAG, "socket closed");
 
-    return ESP_OK;
+    return 0;
 }

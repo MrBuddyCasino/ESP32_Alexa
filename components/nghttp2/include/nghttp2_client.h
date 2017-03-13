@@ -13,8 +13,6 @@
 #include "mbedtls/platform.h"
 #include "mbedtls/net.h"
 
-#include "nghttp2/nghttp2.h"
-
 #include "http_parser.h"
 
 /*
