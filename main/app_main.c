@@ -199,8 +199,9 @@ void app_main()
 
     // xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
     // xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 8192, NULL, 20, NULL, 0);
-    // xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
 
+    /*
     // init web radio
     web_radio_t *radio_config = calloc(1, sizeof(web_radio_t));
     radio_config->host = PLAY_SERVER;
@@ -222,6 +223,7 @@ void app_main()
     // start radio
     web_radio_init(radio_config);
     web_radio_start(radio_config);
+    */
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 

@@ -16,29 +16,32 @@
 #include "nghttp2_client.h"
 #include "multipart_parser.h"
 
+#include "audio_player.h"
+
 
 typedef enum
 {
     META_HEADERS, META_JSON, AUDIO_HEADERS, AUDIO_DATA, DONE
-} PART_TYPE;
+} part_type_t;
 
 typedef struct
 {
-    PART_TYPE next_action;
+    part_type_t next_action;
     uint8_t *file_pos;
-} alexa_request;
+} alexa_request_t;
 
 typedef struct
 {
     multipart_parser* m_parser;
-    PART_TYPE current_part;
-} alexa_response;
+    part_type_t current_part;
+    player_t *player_config;
+} alexa_response_t;
 
 typedef struct
 {
-    alexa_request *request;
-    alexa_response *response;
-} alexa_session;
+    alexa_request_t *request;
+    alexa_response_t *response;
+} alexa_session_t;
 
 
 /* Europe: alexa-eu / America: alexa-na */
@@ -50,7 +53,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIFwaogzxzd-OQz1QWpBxW0DsYD8efwkioGImLBSX4dDGd6UDvnkLoxBOyrxBB5oKEf0LiCYhz_idr1Y8prKXvd1YCrJ6iEwkwyA5lU1UJiXQa12KAF6pwwCTS77YbNF2qk84i0BcIk3zFegAxLO1KQ96vDgOa0Z296HDvtHGoo5c2JzOtNI79rJRXK0JrFigszoUzyR6NekhzkwcrLtcQmkE3LvWpEkOeRjgRr4OVu4sUqZr-K0p9vtfAIFaX5_iy-YaOkiixCBWYleUfM_5SM_7ilrQ9nHSFW2DcYfyZ7UrJPFEr_0kSTe1J9UvGXSBZlAmYfQ_HrCcsZlyY7GFJ8grdFSAafI4Hkhek8AIFCwLjbXKsSQUDFy8_hax28-6_rs2S3QhZrHpGUM87-Xd0f7gLLUKAtvxM7aINRpUSvkO8INbwQD9XtVtzXDHRdlJnUUUaL0jHDq2TtVdzer7y1L8ov1-fsFlAQu-l-fABG0BLFLxP4uX7kxtDU9a_HAy_Iph0sfcklYMyZ4709OAct2di-ilTmo5o4dNghAJZ69efQ"
+#define TOKEN "Bearer Atza|IwEBIClICkTSelocZSPV7nzLvaZrllTBwZn1dBGYeiB83UaVNgyvAiQ5Eu6EZZs4DCS-X0glQ6Q2o5Dx1Zo5Tl-zvrYxm3Y1r_zIpDzve80lN13QS2QwDRJJT2tCUkv5RnXUAYBsLyYIBILpvCfPvZw8FY0gKy8xYCZc_vOoKWxlFr1fnuXVEqtUCveXkdo0DqlqdE7Nl6pAIVnDzMGq3XavB16wtecD9Vf-jLL5rQTPJR4eRgUyBPuajR7FAqaj9BQprGtlGBo-ZAGyJrecG10rMyEWJrhcD23n3gmE3Bh3T5H6-us4dtKzvOCAsCioMm9_ExSpM7tdWt8-AmZLG2QZP_nbAmfQkH0tjM_vWaMpESyJ-1ABP0d30lxwWEZ2tXRVy_bW1-GV-sk6QLfMr9IgAySFyoMIVB8raf6Ke4SwvXjCUqDpUzza-Cuyx2saT-dy6IrKHzITKHpv9ekxVXvF3NQg4KMe-YZSm9zLDK1rGPFygzCjhLmNcmPFYLihIuMI234CIGJ8T_2dnn7RMqjFCOZEsqOAs8xIHF0-6o_LXfZY3g"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -99,44 +102,64 @@ static bool did_yield = false;
 
 /* multipart callbacks */
 int on_header_field(multipart_parser *parser, const char *at, size_t length) {
-    alexa_response *alexa_response = multipart_parser_get_data(parser);
+    alexa_response_t *alexa_response = multipart_parser_get_data(parser);
 
     printf("on_header_field %.*s\n", (int)length, at);
     return 0;
 }
 int on_header_value(multipart_parser *parser, const char *at, size_t length) {
-    alexa_response *alexa_response = multipart_parser_get_data(parser);
+    alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+
+    // assumes audio on application/octet-stream
+    if(strncmp("application/octet-stream", at, length) == 0) {
+        printf("audio part detected\n");
+        alexa_response->current_part = AUDIO_DATA;
+
+        printf("starting player\n");
+        audio_player_init(alexa_response->player_config);
+        audio_player_start(alexa_response->player_config);
+    }
 
     printf("on_header_value %.*s\n", (int)length, at);
-    // assumes audio on application/octet-stream
+
     return 0;
 }
 int on_part_data(multipart_parser *parser, const char *at, size_t length) {
-    alexa_response *alexa_response = multipart_parser_get_data(parser);
+    alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+
+    if(alexa_response->current_part == AUDIO_DATA)
+    {
+        // printf("feeding player\n");
+        audio_stream_consumer(at, length, alexa_response->player_config);
+    }
 
     // printf("%.*s: ", length, at);
     return 0;
 }
 
+/** called before header name/value :-/ */
 int on_part_data_begin(multipart_parser *parser)
 {
-    alexa_response *alexa_response = multipart_parser_get_data(parser);
     printf("on_part_data_begin\n");
-
-    // start MP3 decoder
-    if(alexa_response->current_part == AUDIO_DATA)
-    {
-        ;
-    }
-
     return 0;
 }
 
 int on_headers_complete(multipart_parser *parser)   { printf("on_headers_complete\n"); return 0; }
-int on_part_data_end(multipart_parser *parser)      { printf("on_part_data_end\n"); return 0; }
+int on_part_data_end(multipart_parser *parser)
+{
+    alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+    printf("on_part_data_end\n");
+
+    if(alexa_response->current_part == AUDIO_DATA) {
+        printf("stopping player\n");
+        // audio_player_stop(alexa_response->player_config);
+    }
+
+    return 0;
+}
 int on_body_end(multipart_parser *parser)           { printf("on_body_end\n"); return 0; }
 
-void init_multipart_parser(alexa_response *alexa_response, char *boundary_term)
+void init_multipart_parser(alexa_response_t *alexa_response, char *boundary_term)
 {
     ESP_LOGI(TAG, "init multipart_parser: %s", boundary_term);
 
@@ -153,6 +176,7 @@ void init_multipart_parser(alexa_response *alexa_response, char *boundary_term)
     multipart_parser* m_parser = multipart_parser_init(boundary_term, callbacks);
     multipart_parser_set_data(m_parser, alexa_response);
     alexa_response->m_parser = m_parser;
+    alexa_response->current_part = META_HEADERS;
 }
 
 
@@ -162,10 +186,10 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
         nghttp2_data_source *data_source, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_request *alexa_session = data_source->ptr;
+    alexa_request_t *alexa_session = data_source->ptr;
 
     ssize_t bytes_written = 0;
-    PART_TYPE next_action = alexa_session->next_action;
+    part_type_t next_action = alexa_session->next_action;
 
     if(!did_yield) {
         did_yield = true;
@@ -222,8 +246,8 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
             break;
     }
 
-    printf("writing %d bytes to stream_id: %d, buf length: %d\n", bytes_written, stream_id, buf_length);
-    // printf("%.*s\n", bytes_written, buf);
+    // printf("writing %d bytes to stream_id: %d, buf length: %d\n", bytes_written, stream_id, buf_length);
+    printf("%d bytes out\n", bytes_written);
 
     return bytes_written;
 }
@@ -236,7 +260,7 @@ int header_callback(nghttp2_session *session,
                       uint8_t flags, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_session *alexa_session = session_data->user_data;
+    alexa_session_t *alexa_session = session_data->user_data;
 
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
@@ -273,8 +297,9 @@ int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data)
 {
     http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_session *alexa_session = session_data->user_data;
+    alexa_session_t *alexa_session = session_data->user_data;
 
+    // will be non-null after boundary term was detected
     if(alexa_session->response->m_parser != NULL) {
         multipart_parser_execute(alexa_session->response->m_parser, (char*)data, len);
     }
@@ -318,10 +343,23 @@ void alexa_init()
 
     http2_session_data *http2_session;
 
-    alexa_session *alexa_session = calloc(1, sizeof(alexa_session));
-    alexa_session->request = calloc(1, sizeof(alexa_request));
+    alexa_session_t *alexa_session = calloc(1, sizeof(alexa_session));
+    alexa_session->request = calloc(1, sizeof(alexa_request_t));
     alexa_session->request->next_action = META_HEADERS;
-    alexa_session->response = calloc(1, sizeof(alexa_response));
+    alexa_session->response = calloc(1, sizeof(alexa_response_t));
+
+    // init player
+    player_t *player_config = calloc(1, sizeof(player_t));
+    alexa_session->response->player_config = player_config;
+    player_config->state = STOPPED;
+
+    // init renderer
+    player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
+    renderer_config_t *renderer_config = player_config->renderer_config;
+    renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
+    renderer_config->i2s_num = I2S_NUM_0;
+    renderer_config->sample_rate = 44100;
+    renderer_config->output_mode = I2S;
 
 
     nghttp2_data_provider *data_provider_struct = calloc(1,

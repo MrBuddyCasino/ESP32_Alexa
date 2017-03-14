@@ -33,16 +33,18 @@ int audio_stream_consumer(char *recv_buf, ssize_t bytes_read, void *user_data)
         spiRamFifoWrite(recv_buf, bytes_read);
     }
 
-    if (!mad_started && (spiRamFifoFree() < spiRamFifoLen()/2) && player->state == PLAYING)
+    // if (!mad_started && (spiRamFifoFree() < spiRamFifoLen()/2) && player->state == PLAYING)
+    if (!mad_started && player->state == PLAYING)
     {
+        mad_started = true;
         //Buffer is filled. Start up the MAD task.
-        if (xTaskCreatePinnedToCore(&mp3_decoder_task, "tskmad", 6300, player, PRIO_MAD, NULL, 1) != pdPASS)
+        // TODO: 6300 not enough?
+        if (xTaskCreatePinnedToCore(&mp3_decoder_task, "tskmad", 8000, player, PRIO_MAD, NULL, 1) != pdPASS)
         {
             printf("ERROR creating MAD task! Out of memory?\n");
         } else {
             printf("created MAD task\n");
         }
-        mad_started = true;
     }
 
 

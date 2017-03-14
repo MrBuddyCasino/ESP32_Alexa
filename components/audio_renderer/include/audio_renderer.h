@@ -8,6 +8,7 @@
 #ifndef INCLUDE_AUDIO_RENDERER_H_
 #define INCLUDE_AUDIO_RENDERER_H_
 
+#include "freertos/FreeRTOS.h"
 #include "driver/i2s.h"
 
 typedef enum {

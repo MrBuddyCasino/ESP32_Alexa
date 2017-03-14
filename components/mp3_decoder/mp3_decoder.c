@@ -7,6 +7,9 @@
 
 #include <stdlib.h>
 #include <string.h>
+
+#include "esp_log.h"
+
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
@@ -20,7 +23,7 @@
 #include "audio_player.h"
 #include "spiram_fifo.h"
 
-
+#define TAG "decoder"
 //The mp3 read buffer size. 2106 bytes should be enough for up to 48KHz mp3s according to the sox sources. Used by libmad.
 #define READBUFSZ (2106)
 static char readBuf[READBUFSZ];
@@ -116,9 +119,9 @@ void mp3_decoder_task(void *pvParameters)
                 continue;
             }
             mad_synth_frame(synth, frame);
-            // ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
-            // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
         }
+        // ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+        // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
     }
 
     free(synth);

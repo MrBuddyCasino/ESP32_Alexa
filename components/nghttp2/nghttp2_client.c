@@ -806,7 +806,7 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
 
     do {
         ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) );
-        ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
+        // ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             // continue;
@@ -830,7 +830,7 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
         }
 
 
-        ESP_LOGI(TAG, "%d bytes read", ret);
+        // ESP_LOGI(TAG, "%d bytes read", ret);
 
         ret = nghttp2_session_mem_recv(http2_session->session,
                 buf, ret);
