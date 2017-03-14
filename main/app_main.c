@@ -221,6 +221,7 @@ void app_main()
 
     // start radio
     web_radio_init(radio_config);
+    web_radio_start(radio_config);
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 

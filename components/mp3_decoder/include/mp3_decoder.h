@@ -6,4 +6,4 @@
  */
 
 
-void task_mad(void *pvParameters);
+void mp3_decoder_task(void *pvParameters);

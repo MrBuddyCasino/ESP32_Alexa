@@ -29,7 +29,7 @@ static long bufUnderrunCt;
 const uint32_t zero_sample[2] = { 0 };
 
 
-static enum mad_flow input(struct mad_stream *stream) {
+static enum mad_flow input(struct mad_stream *stream, player_t *player) {
     int n, i;
     int rem;
     //Shift remaining contents of buf to the front
@@ -47,10 +47,12 @@ static enum mad_flow input(struct mad_stream *stream) {
             bufUnderrunCt++;
             //We both silence the output as well as wait a while by pushing silent samples into the i2s system.
             //This waits for about 200mS
-            for (n=0; n<441*2; n++) {
+            //for (n=0; n<441*2; n++) {
                 // i2s_push_sample(I2S_NUM_0, (const char *) &zero_sample, portMAX_DELAY);
-                i2s_zero_dma_buffer(I2S_NUM_0);
-            }
+            // }
+            i2s_zero_dma_buffer(I2S_NUM_0);
+            if(player->state == STOPPED)
+                return MAD_FLOW_STOP;
         } else {
             //Read some bytes from the FIFO to re-fill the buffer.
             spiRamFifoRead(&readBuf[rem], n);
@@ -74,7 +76,7 @@ static enum mad_flow error(void *data, struct mad_stream *stream, struct mad_fra
 
 //This is the main mp3 decoding task. It will grab data from the input buffer FIFO in the SPI ram and
 //output it to the I2S port.
-void task_mad(void *pvParameters)
+void mp3_decoder_task(void *pvParameters)
 {
     player_t *player = pvParameters;
 
@@ -92,9 +94,6 @@ void task_mad(void *pvParameters)
     if (synth==NULL) { printf("MAD: malloc(synth) failed\n"); return; }
     if (frame==NULL) { printf("MAD: malloc(frame) failed\n"); return; }
 
-    // initialize I2S
-    audio_renderer_init(player->renderer_config);
-
     bufUnderrunCt = 0;
 
     printf("MAD: Decoder start.\n");
@@ -105,7 +104,7 @@ void task_mad(void *pvParameters)
     mad_synth_init(synth);
 
     while(player->state != STOPPED) {
-        input(stream); //calls mad_stream_buffer internally
+        input(stream, player); //calls mad_stream_buffer internally
         while(player->state != STOPPED) {
             r = mad_frame_decode(frame, stream);
             if (r==-1) {
@@ -121,9 +120,6 @@ void task_mad(void *pvParameters)
             // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
         }
     }
-
-
-    audio_renderer_stop(player->renderer_config);
 
     free(synth);
     free(frame);

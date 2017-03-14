@@ -86,7 +86,6 @@ int http_client_get(char *host, char *port, char *path, stream_reader_cb callbac
     esp_err_t cont = 0;
     do {
         numBytes = read(sock, recv_buf, sizeof(recv_buf)-1);
-        // ESP_LOGI(TAG, "received %d bytes", sizeof(recv_buf));
         cont = (*callback)(recv_buf, numBytes, user_data);
     } while(numBytes > 0 && cont == 0);
 

@@ -21,11 +21,12 @@ static void http_get_task(void *pvParameters)
 
     // TODO: url parsing
 
-    esp_err_t result = http_client_get(
+    // blocks until end of stream
+    int result = http_client_get(
             radio_conf->host,
             radio_conf->port,
             radio_conf->path,
-            stream_reader,
+            audio_stream_consumer,
             radio_conf->player_config);
 
     if(result != 0) {
@@ -40,9 +41,11 @@ static void http_get_task(void *pvParameters)
 
 
 void web_radio_init(web_radio_t *config) {
+    audio_player_init(config->player_config);
+}
 
-    config->player_config->state = PLAYING;
-
-    // start http reader task
+void web_radio_start(web_radio_t *config) {
+    audio_player_start(config->player_config);
+    // start reader task
     xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 2048, config, 20, NULL, 0);
 }
