@@ -139,7 +139,7 @@ void audio_renderer_init(renderer_config_t *config)
     // update global
     curr_config = config;
 
-    switch (config->sink) {
+    switch (config->output_mode) {
         case I2S:
             init_i2s(config);
             break;
@@ -167,6 +167,7 @@ void audio_renderer_stop(renderer_config_t *config)
 
 void audio_renderer_destroy(renderer_config_t *config)
 {
+    i2s_driver_uninstall(config->i2s_num);
     free(config);
 }
 

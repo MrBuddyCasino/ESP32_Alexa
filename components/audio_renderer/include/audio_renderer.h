@@ -12,11 +12,11 @@
 
 typedef enum {
     I2S, DAC_BUILT_IN, PDM
-} renderer_sink_t;
+} output_mode_t;
 
 typedef struct
 {
-    renderer_sink_t sink;
+    output_mode_t output_mode;
     int sample_rate;
     i2s_bits_per_sample_t bit_depth;
     i2s_port_t i2s_num;

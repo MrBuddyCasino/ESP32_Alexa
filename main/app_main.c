@@ -217,7 +217,7 @@ void app_main()
     renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
     renderer_config->i2s_num = I2S_NUM_0;
     renderer_config->sample_rate = 44100;
-    renderer_config->sink = I2S;
+    renderer_config->output_mode = I2S;
 
     // start radio
     web_radio_init(radio_config);

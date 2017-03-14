@@ -52,7 +52,7 @@ int stream_reader(char *recv_buf, ssize_t bytes_read, void *user_data)
     return 0;
 }
 
-void mp3_player_init(renderer_sink_t sink)
+void mp3_player_init(output_mode_t sink)
 {
     ;
 }
