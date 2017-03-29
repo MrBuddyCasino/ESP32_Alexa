@@ -12,6 +12,8 @@
 #include "esp_log.h"
 #include "web_radio.h"
 #include "http.h"
+#include "url_parser.h"
+
 #define TAG "web_radio"
 
 
@@ -19,13 +21,12 @@ static void http_get_task(void *pvParameters)
 {
     web_radio_t *radio_conf = pvParameters;
 
-    // TODO: url parsing
+    /* parse URL */
+    url_t *url = url_create(radio_conf->url);
 
     // blocks until end of stream
     int result = http_client_get(
-            radio_conf->host,
-            radio_conf->port,
-            radio_conf->path,
+            url->host, url->port, url->path,
             audio_stream_consumer,
             radio_conf->player_config);
 
@@ -35,6 +36,8 @@ static void http_get_task(void *pvParameters)
         ESP_LOGI(TAG, "http_client_get completed");
     }
     // ESP_LOGI(TAG, "http_client_get stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+
+    url_free(url);
 
     vTaskDelete(NULL);
 }

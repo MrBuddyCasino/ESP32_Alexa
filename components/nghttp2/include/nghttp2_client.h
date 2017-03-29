@@ -15,37 +15,6 @@
 
 #include "http_parser.h"
 
-/*
- * user data that is associated with a stream
- * retrieve with:
- * void * nghttp2_session_get_stream_user_data(nghttp2_session *session, int32_t stream_id)
- */
-typedef struct
-{
-    /* The NULL-terminated URI string to retrieve. */
-    char *uri;
-
-    /* The host portion of the |uri|, NULL-terminated */
-    char *host;
-
-    /* The schema portion of the |uri|, NULL-terminated */
-    char *scheme;
-
-    /* The port portion of the |uri|, or the schema's default port */
-    uint16_t port;
-
-    /* The authority portion of the |uri|, NULL-terminated */
-    char *authority;
-
-    /* The path portion of the |uri|, including query, NULL-terminated */
-    char *path;
-
-    struct http_parser_url *u;
-    uint16_t authoritylen;
-    uint16_t pathlen;
-
-} http2_request_data;
-
 
 /* underlying ssl connection */
 typedef struct
@@ -62,12 +31,23 @@ typedef struct
 {
     /* nghttp2_session is hidden */
     nghttp2_session *session;
+
+    /* underlying connection */
     ssl_session_data *ssl_session;
+
+    /* current number of outgoing streams */
     uint8_t num_outgoing_streams;
+
+    /* put in what you like */
     void *user_data;
 
     int32_t stream_id;
-    http2_request_data *stream_data;
+
+    /*
+     * user data that is associated with a stream
+     * retrieve with:
+     * void * nghttp2_session_get_stream_user_data(nghttp2_session *session, int32_t stream_id)
+     */
 
 } http2_session_data;
 

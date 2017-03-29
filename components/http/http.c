@@ -21,7 +21,7 @@
 #define TAG "http_client"
 
 
-int http_client_get(char *host, char *port, char *path, stream_reader_cb callback, void *user_data)
+int http_client_get(char *host, uint16_t port, char *path, stream_reader_cb callback, void *user_data)
 {
     const struct addrinfo hints = {
         .ai_family = AF_INET,
@@ -29,8 +29,10 @@ int http_client_get(char *host, char *port, char *path, stream_reader_cb callbac
     };
     struct addrinfo *res;
     struct in_addr *addr;
+    char port_str[6]; // stack allocated
+    snprintf(port_str, 6, "%d", port);
 
-    int err = getaddrinfo(host, port, &hints, &res);
+    int err = getaddrinfo(host, port_str, &hints, &res);
     if(err != ESP_OK || res == NULL) {
         ESP_LOGE(TAG, "DNS lookup failed err=%d res=%p", err, res);
         return err;

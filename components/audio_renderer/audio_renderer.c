@@ -128,11 +128,10 @@ void render_sample_block(short *short_sample_buff, int no_samples) {
 static int prevRate;
 void set_dac_sample_rate(int rate) {
     if(rate == prevRate) return;
-
-    ESP_LOGI(TAG, "setting sample rate to %d\n", rate);
-    i2s_set_sample_rates(curr_config->i2s_num, rate);
-
     prevRate = rate;
+
+    ESP_LOGI(TAG, "setting sample rate to %d\n", rate / 2);
+    i2s_set_sample_rates(curr_config->i2s_num, rate / 2);
 }
 
 

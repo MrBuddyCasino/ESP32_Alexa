@@ -2,19 +2,9 @@
 #define _PLAYER_CONFIG_H_
 
 
-/* If you don't want to enter your wifi credentials in this file, you can set them
-   in the shell as environment variables like this:
-   export AP_NAME=wifi_name
-   export AP_PASS=mypasswd */
-
-#ifndef WIFI_AP_NAME
-// #define WIFI_AP_NAME "cc-wlan"
-#define WIFI_AP_NAME "NETGEAR52"
-#endif
-
-#ifndef WIFI_AP_PASS
-#define WIFI_AP_PASS "*****"
-#endif
+// defined via 'make menuconfig'
+#define WIFI_AP_NAME CONFIG_WIFI_SSID
+#define WIFI_AP_PASS CONFIG_WIFI_PASSWORD
 
 
 /* Define stream URL here. For example, the URL to the MP3 stream of a certain Dutch radio station

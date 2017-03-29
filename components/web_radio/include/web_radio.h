@@ -13,11 +13,6 @@
 
 typedef struct {
     char *url;
-
-    char *host;
-    char *port;
-    char *path;
-
     player_t *player_config;
 } web_radio_t;
 

@@ -74,8 +74,9 @@ typedef time_t mbedtls_time_t;
 
 #include "nghttp2/nghttp2.h"
 #include "http_parser.h"
+#include "url_parser.h"
 
-#include "include/nghttp2_client.h"
+#include "nghttp2_client.h"
 
 #define ARRLEN(x) (sizeof(x) / sizeof(x[0]))
 
@@ -148,105 +149,6 @@ void destroy_mbedtls_context(mbedtls_ssl_context *ssl,
 
 
 
-static esp_err_t create_http2_request_data(http2_request_data **request_data_ptr, char *uri)
-{
-    int ret;
-
-    /* allocate http2_request_data */
-    *request_data_ptr = calloc(1, sizeof(http2_request_data));
-    if(*request_data_ptr == NULL) {
-        ESP_LOGE(TAG, "Could not allocate http2_request_data");
-        return ESP_ERR_NO_MEM;
-    }
-    http2_request_data *request_data = (*request_data_ptr);
-
-
-    /* Parse the |uri| and stores its components in |url| */
-
-    struct http_parser_url *url = calloc(1, sizeof(struct http_parser_url));
-    ret = http_parser_parse_url(uri, strlen(uri), 0, url);
-    if (ret != 0) {
-        ESP_LOGE(TAG, "Could not parse URI %s", uri);
-        return ESP_FAIL;
-    }
-
-
-    /* schema */
-    request_data->scheme = strndup(&uri[url->field_data[UF_SCHEMA].off], url->field_data[UF_SCHEMA].len);
-
-    /* host */
-    request_data->host = strndup(&uri[url->field_data[UF_HOST].off], url->field_data[UF_HOST].len);
-
-
-    /* explicit or default ports for http(s) */
-    if (url->field_set & (1 << UF_PORT)) {
-        request_data->port = url->port;
-    } else {
-        // assume: 4 = http, 5 = https
-        request_data->port = (url->field_data[UF_SCHEMA].len == 5) ? 443 : 80;
-    }
-
-
-    /* MAX 5 digits (max 65535) + 1 ':' + 1 NULL (because of snprintf) */
-    size_t extra = 7;
-
-    request_data->uri = uri;
-
-    /* authority */
-    uint16_t authoritylen = url->field_data[UF_HOST].len;
-    request_data->authority = calloc(authoritylen + extra, sizeof(char));
-    memcpy(request_data->authority,
-            &uri[url->field_data[UF_HOST].off],
-            url->field_data[UF_HOST].len);
-    /* maybe add port */
-    if (url->field_set & (1 << UF_PORT)) {
-        authoritylen += (size_t) snprintf(request_data->authority + authoritylen,
-                extra, ":%u", url->port);
-    }
-    request_data->authority[authoritylen] = '\0';
-
-    /* If we don't have path in URI, we use "/" as path. */
-    uint16_t pathlen = 1;
-    if (url->field_set & (1 << UF_PATH)) {
-        pathlen = url->field_data[UF_PATH].len;
-    }
-    if (url->field_set & (1 << UF_QUERY)) {
-        /* +1 for '?' character */
-        pathlen += (size_t) (url->field_data[UF_QUERY].len + 1);
-    }
-
-    /* +1 for \0 */
-    request_data->path = malloc(pathlen + 1);
-    if (url->field_set & (1 << UF_PATH)) {
-        memcpy(request_data->path, &uri[url->field_data[UF_PATH].off],
-                url->field_data[UF_PATH].len);
-    } else {
-        request_data->path[0] = '/';
-    }
-
-    if (url->field_set & (1 << UF_QUERY)) {
-        request_data->path[pathlen - url->field_data[UF_QUERY].len - 1] = '?';
-        memcpy(
-                request_data->path + pathlen - url->field_data[UF_QUERY].len,
-                &uri[url->field_data[UF_QUERY].off], url->field_data[UF_QUERY].len);
-    }
-    request_data->path[pathlen] = '\0';
-
-
-    free(url);
-
-    return ESP_OK;
-}
-
-
-static void free_http2_request_data(http2_request_data *request_data)
-{
-    free(request_data->scheme);
-    free(request_data->host);
-    free(request_data->path);
-    free(request_data->authority);
-    free(request_data);
-}
 
 
 /* Initializes |session_data| */
@@ -512,7 +414,7 @@ static esp_err_t send_client_connection_header(http2_session_data *session_data)
 
 /* Send HTTP request to the remote peer */
 static esp_err_t submit_request(http2_session_data *session_data,
-        http2_request_data *request_data,
+        const url_t *url,
         const nghttp2_nv *user_hdrs, size_t user_hdr_len,
         const char* method,
         const nghttp2_data_provider *data_prd)
@@ -522,10 +424,10 @@ static esp_err_t submit_request(http2_session_data *session_data,
 
     /* create pseudo-headers */
     nghttp2_nv default_hdrs[] = {
-        MAKE_NV(":method",      method,                 strlen(method)),
-        MAKE_NV(":scheme",      request_data->scheme,   strlen(request_data->scheme)),
-        MAKE_NV(":authority",   request_data->authority,strlen(request_data->authority)),
-        MAKE_NV(":path",        request_data->path,     strlen(request_data->path))
+        MAKE_NV(":method",      method,        strlen(method)),
+        MAKE_NV(":scheme",      url->scheme,   strlen(url->scheme)),
+        MAKE_NV(":authority",   url->authority,strlen(url->authority)),
+        MAKE_NV(":path",        url->path,     strlen(url->path))
     };
 
     /* combine with user headers */
@@ -545,7 +447,7 @@ static esp_err_t submit_request(http2_session_data *session_data,
     /* submit request */
 
     stream_id = nghttp2_submit_request(session_data->session, NULL, hdrs,
-            ARRLEN(hdrs), data_prd, request_data);
+            ARRLEN(hdrs), data_prd, (void*)url);
 
     if (stream_id < 0) {
         ESP_LOGE(TAG, "Could not submit HTTP request: %s", nghttp2_strerror(stream_id));
@@ -657,7 +559,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     memset( (void * ) cypher, 0, sizeof( cypher ) );
     cypher[0] = MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256;
     cypher[1] = MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384;
-    cypher[2] = NULL;
+    cypher[2] = (int) NULL;
     mbedtls_ssl_conf_ciphersuites(conf, cypher);
 
     /*
@@ -771,17 +673,17 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
         ESP_LOGI(TAG, "Certificate verified.");
     }
 
-    return ESP_OK;
+    return 0;
 }
 
 /* establish SSL connection and create a new session */
-esp_err_t nghttp_new_connection(http2_session_data *http2_session, http2_request_data *request_data)
+esp_err_t nghttp_new_connection(http2_session_data *http2_session, url_t *url)
 {
     int ret;
     ssl_session_data *ssl_session;
 
     /* connect using tls */
-    ret = open_ssl_connection(&ssl_session, request_data->host, request_data->port);
+    ret = open_ssl_connection(&ssl_session, url->host, url->port);
     if (ret != ESP_OK) {
         free_ssl_session_data(ssl_session);
         ESP_LOGE(TAG, "TLS connection failed");
@@ -791,7 +693,7 @@ esp_err_t nghttp_new_connection(http2_session_data *http2_session, http2_request
 
 
     /* transport layer ready */
-    return ESP_OK;
+    return 0;
 }
 
 
@@ -880,7 +782,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
 {
     esp_err_t ret;
     http2_session_data *http2_session;
-    http2_request_data *request_data;
+    url_t *url;
     int32_t stream_id;
 
 
@@ -891,23 +793,22 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     http2_session = (*http2_session_ptr);
     http2_session->user_data = user_data;
 
-    /* create and initialize request data */
-    if((ret = create_http2_request_data(&request_data, uri)) != 0) {
-        free_http2_request_data(request_data);
+    /* parse url */
+    if((url = url_create(uri)) == NULL) {
         free_http2_session_data(http2_session);
-        return ret;
+        return -1;
     }
 
     /* make ssl connection */
-    if((ret = nghttp_new_connection(http2_session, request_data) != 0)) {
-        free_http2_request_data(request_data);
+    if((ret = nghttp_new_connection(http2_session, url) != 0)) {
+        url_free(url);
         free_http2_session_data(http2_session);
         return ret;
     }
 
     // register callbacks
     if((ret = register_session_callbacks(http2_session, hdr_callback, recv_callback, stream_close_callback)) != 0) {
-        free_http2_request_data(request_data);
+        url_free(url);
         free_http2_session_data(http2_session);
         return ret;
     }
@@ -915,9 +816,9 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     // send request
     ESP_LOGI(TAG, "Writing HTTP request...");
     send_client_connection_header(http2_session);
-    if((stream_id = submit_request(http2_session, request_data, headers, hdr_len, method, data_provider_struct)) < 0) {
+    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
-        free_http2_request_data(request_data);
+    	url_free(url);
         free_http2_session_data(http2_session);
         return stream_id;
     }
@@ -925,7 +826,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     /* start sending data */
     if ((ret = nghttp2_session_send(http2_session->session)) != 0 && ret != NGHTTP2_ERR_DEFERRED) {
     	ESP_LOGI(TAG, "session_send() returned %d",ret);
-    	free_http2_request_data(request_data);
+    	url_free(url);
         free_http2_session_data(http2_session);
         return ret;
     }
