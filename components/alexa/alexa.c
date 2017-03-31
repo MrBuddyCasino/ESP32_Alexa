@@ -53,7 +53,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIH9_Erjr8JgvBJFgKEv0Aaf1EtY1qFKEyNSetdV0bY7fTeImU6268vqDpZlcR6pfqIWOsrcg3a2JgzniiuT5fmiSVBUl-WWcKQ7N-Wlfcf-I7YKc_OgWZBPxyy--s7M30e2KmWXaobP8VC4cJFJnJsrQnwEFriJoFcVGUQk8DjQBeISV0hnSO49Y0eMSlw1K2mojXRz0seQfVFPxa7jBj7PblEvdJfXSbGtKvBeWfs_UnEyQ6ySlqUtkvN4E-G70maVf4iWbhqq4hwK95vkpFYBo5Sx5DGHXeCrLU-_N-GxDY-jFHlu0SQkawsNdXKoZo_7gN0TyjfEFIU4Lx8Yeu4RjxKAIlSjkVihF-JJ4lrBSvzMHRFVzeCrKPH2R027Xk1zwRr_FEq8uB3_sVIp_ZRJPJBTQfd7__57YoHtvbd_t0zCfhh1p-A2TXXNfgLpS6QRTZswTP7eeGB0A-0yb2YYJVBi2lu0MfMhTMTfdsdmtNNDfVSFWSADKGGqrzAOAsaSGJBV3w3nqPW6lsMhi6GKxDcMh0DIVO62Q-auibwRbJg"
+#define TOKEN "Bearer Atza|IwEBIHUlZuHVHyXBrgY7RjJfGtuMDBc-qLUtya8Mc7JjonDboGrSqcCxgUgpmYIXzHfpycKQg3h4Gz6sJoZ-r3BGsv_FjWdYcH0gwIwgZN6KKHF-Yk2g7eYaJAIYjCnGh4hRdl7zznTOzPIWYXv32i6TFB0DyeXzK8BrZx4UMgn4CbQaOobhY9PJfnz_ItkQmPnPCn3Hh390vtkp-ACTP_t5PpoiZMQgtfU-ZzfNOYuA3plpO78VkuRvnd78USA8xbibefLsYfGNlKMBX1-8GU2gZajdeAG_nbviTvD9et6EQ-T7XGxycdvFb_r_7iVjs8C5MdrsF8KRK1eAWduLOGFZ8fgNEh2VVO6WBUhawKqWQio99da6DU3-pVXKZq4KFJ7rT7QfYaZGzCTLLTzcVOj9knZtMbq1az6yUVz7E44gJzyH-UOnL0mv9dCEGWNmf_zyocbFLy2cqQiQ_aQScBGl78KoXKaD8NeuFVJVkG4L0VOnzGQG_6PFjW8NkL4Mnnn-fKSqwpAGgLJW-jBGPLYH1J4_tJFbZWD1KdtIn3rWqgSrJQ"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -152,12 +152,19 @@ int on_part_data_end(multipart_parser *parser)
 
     if(alexa_response->current_part == AUDIO_DATA) {
         printf("stopping player\n");
+        alexa_response->player_config->state = FINISHED;
         // audio_player_stop(alexa_response->player_config);
     }
 
     return 0;
 }
-int on_body_end(multipart_parser *parser)           { printf("on_body_end\n"); return 0; }
+
+int on_body_end(multipart_parser *parser)
+{
+    printf("on_body_end\n");
+    // MAD and NGHTTP2 terminate themselves - shutdown renderer?
+    return 0;
+}
 
 void init_multipart_parser(alexa_response_t *alexa_response, char *boundary_term)
 {
@@ -354,7 +361,7 @@ void alexa_init()
     // init player
     player_t *player_config = calloc(1, sizeof(player_t));
     alexa_session->response->player_config = player_config;
-    player_config->state = STOPPED;
+    player_config->state = IDLE;
 
     // init renderer
     player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
@@ -363,6 +370,7 @@ void alexa_init()
     renderer_config->i2s_num = I2S_NUM_0;
     renderer_config->sample_rate = 44100;
     renderer_config->output_mode = I2S;
+    renderer_config->sample_rate_modifier = 1.0;
 
 
     nghttp2_data_provider *data_provider_struct = calloc(1,
