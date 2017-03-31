@@ -48,15 +48,21 @@ int http_client_get(char *host, uint16_t port, char *path, stream_reader_cb call
         ESP_LOGE(TAG, "... Failed to allocate socket.");
         freeaddrinfo(res);
     }
-    ESP_LOGI(TAG, "... allocated socket\r\n");
+    ESP_LOGI(TAG, "... allocated socket");
 
 
-    // connect
-    if(connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
-        ESP_LOGE(TAG, "... socket connect failed errno=%d", errno);
-        close(sock);
-        freeaddrinfo(res);
-        return ESP_FAIL;
+    // connect, retrying a few times
+    char retries = 0;
+    while(connect(sock, res->ai_addr, res->ai_addrlen) != 0) {
+        retries++;
+        ESP_LOGE(TAG, "... socket connect attempt %d failed, errno=%d", retries, errno);
+
+        if(retries > 5) {
+            ESP_LOGE(TAG, "giving up");
+            close(sock);
+            freeaddrinfo(res);
+            return ESP_FAIL;
+        }
     }
 
     ESP_LOGI(TAG, "... connected");
@@ -91,7 +97,7 @@ int http_client_get(char *host, uint16_t port, char *path, stream_reader_cb call
         cont = (*callback)(recv_buf, numBytes, user_data);
     } while(numBytes > 0 && cont == 0);
 
-    ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d\r\n", numBytes, errno);
+    ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d", numBytes, errno);
     close(sock);
     ESP_LOGI(TAG, "socket closed");
 

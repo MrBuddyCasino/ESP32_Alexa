@@ -15,17 +15,19 @@ typedef enum {
     I2S, DAC_BUILT_IN, PDM
 } output_mode_t;
 
+
 typedef struct
 {
     output_mode_t output_mode;
     int sample_rate;
+    float sample_rate_modifier;
     i2s_bits_per_sample_t bit_depth;
     i2s_port_t i2s_num;
 } renderer_config_t;
 
 
-/* callback for the audio decoder */
-void render_sample_block(short *short_sample_buff, int no_samples);
+/* render callback for libmad */
+void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num_samples, unsigned int num_channels);
 
 void audio_renderer_init(renderer_config_t *config);
 void audio_renderer_start(renderer_config_t *config);

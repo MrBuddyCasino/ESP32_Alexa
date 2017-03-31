@@ -1,16 +1,3 @@
-// Copyright 2015-2016 Espressif Systems (Shanghai) PTE LTD
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -32,14 +19,13 @@
 #include "driver/i2s.h"
 
 #include "spiram_fifo.h"
+#include "audio_renderer.h"
+#include "web_radio.h"
 #include "playerconfig.h"
 #include "app_main.h"
 
-#include "audio_renderer.h"
-#include "web_radio.h"
 
 #include "nghttp2/nghttp2.h"
-
 #include "nghttp2_client.h"
 #include "alexa.h"
 
@@ -100,37 +86,6 @@ static void initialise_wifi(EventGroupHandle_t wifi_event_group)
 
 
 
-static const char *postdata = "this is just a test";
-ssize_t posterboy(
-        nghttp2_session *session, int32_t stream_id, uint8_t *buf, size_t length,
-        uint32_t *data_flags, nghttp2_data_source *source, void *user_data)
-{
-    *data_flags |= NGHTTP2_DATA_FLAG_EOF;
-    size_t r = length < strlen(postdata) ? length : strlen(postdata);
-    memcpy(buf, postdata, r);
-
-    return r;
-}
-
-static void http2_get_task(void *pvParameters)
-{
-    /*
-    nghttp_get("https://http2.golang.org/");
-    nghttp_get("https://192.168.1.2:8443/examples/servlets/servlet/HelloWorldExample");
-
-    */
-    nghttp2_data_provider data_provider_struct = {
-            .read_callback = posterboy
-    };
-
-    nghttp_put("https://http2.golang.org/ECHO", &data_provider_struct);
-
-    ESP_LOGI(TAG, "http_client_get stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
-
-    vTaskDelete(NULL);
-}
-
-
 static void alexa_task(void *pvParameters)
 {
     alexa_init();
@@ -169,6 +124,35 @@ static void set_wifi_credentials()
     esp_wifi_connect();
 }
 
+static void start_web_radio()
+{
+    // init web radio
+    web_radio_t *radio_config = calloc(1, sizeof(web_radio_t));
+    radio_config->url = PLAY_URL;
+
+    // init player config
+    radio_config->player_config = calloc(1, sizeof(player_t));
+    radio_config->player_config->state = STOPPED;
+
+    // init renderer
+    radio_config->player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
+    renderer_config_t *renderer_config = radio_config->player_config->renderer_config;
+    renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
+    renderer_config->i2s_num = I2S_NUM_0;
+    renderer_config->sample_rate = 44100;
+    renderer_config->sample_rate_modifier = 1.0;
+    renderer_config->output_mode = CONFIG_OUTPUT_MODE;
+
+#ifdef DAC_BUG_WORKAROUND
+    // DAC is consuming samples too fast by default
+    renderer_config->sample_rate_modifier = 0.0625;
+#endif
+
+    // start radio
+    web_radio_init(radio_config);
+    web_radio_start(radio_config);
+}
+
 /**
  * entry point
  */
@@ -197,33 +181,9 @@ void app_main()
     xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
                         false, true, portMAX_DELAY);
 
-    // xTaskCreatePinnedToCore(&http_get_task, "httpGetTask", 2048, NULL, 20, NULL, 0);
-    // xTaskCreatePinnedToCore(&http2_get_task, "http2GetTask", 8192, NULL, 20, NULL, 0);
     xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
 
-    /*
-    // init web radio
-    web_radio_t *radio_config = calloc(1, sizeof(web_radio_t));
-    radio_config->host = PLAY_SERVER;
-    radio_config->port = PLAY_PORT;
-    radio_config->path = PLAY_PATH;
-
-    // init player config
-    radio_config->player_config = calloc(1, sizeof(player_t));
-    radio_config->player_config->state = STOPPED;
-
-    // init renderer
-    radio_config->player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
-    renderer_config_t *renderer_config = radio_config->player_config->renderer_config;
-    renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
-    renderer_config->i2s_num = I2S_NUM_0;
-    renderer_config->sample_rate = 44100;
-    renderer_config->output_mode = I2S;
-
-    // start radio
-    web_radio_init(radio_config);
-    web_radio_start(radio_config);
-    */
+    // start_web_radio();
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 

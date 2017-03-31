@@ -53,7 +53,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIClICkTSelocZSPV7nzLvaZrllTBwZn1dBGYeiB83UaVNgyvAiQ5Eu6EZZs4DCS-X0glQ6Q2o5Dx1Zo5Tl-zvrYxm3Y1r_zIpDzve80lN13QS2QwDRJJT2tCUkv5RnXUAYBsLyYIBILpvCfPvZw8FY0gKy8xYCZc_vOoKWxlFr1fnuXVEqtUCveXkdo0DqlqdE7Nl6pAIVnDzMGq3XavB16wtecD9Vf-jLL5rQTPJR4eRgUyBPuajR7FAqaj9BQprGtlGBo-ZAGyJrecG10rMyEWJrhcD23n3gmE3Bh3T5H6-us4dtKzvOCAsCioMm9_ExSpM7tdWt8-AmZLG2QZP_nbAmfQkH0tjM_vWaMpESyJ-1ABP0d30lxwWEZ2tXRVy_bW1-GV-sk6QLfMr9IgAySFyoMIVB8raf6Ke4SwvXjCUqDpUzza-Cuyx2saT-dy6IrKHzITKHpv9ekxVXvF3NQg4KMe-YZSm9zLDK1rGPFygzCjhLmNcmPFYLihIuMI234CIGJ8T_2dnn7RMqjFCOZEsqOAs8xIHF0-6o_LXfZY3g"
+#define TOKEN "Bearer Atza|IwEBIH9_Erjr8JgvBJFgKEv0Aaf1EtY1qFKEyNSetdV0bY7fTeImU6268vqDpZlcR6pfqIWOsrcg3a2JgzniiuT5fmiSVBUl-WWcKQ7N-Wlfcf-I7YKc_OgWZBPxyy--s7M30e2KmWXaobP8VC4cJFJnJsrQnwEFriJoFcVGUQk8DjQBeISV0hnSO49Y0eMSlw1K2mojXRz0seQfVFPxa7jBj7PblEvdJfXSbGtKvBeWfs_UnEyQ6ySlqUtkvN4E-G70maVf4iWbhqq4hwK95vkpFYBo5Sx5DGHXeCrLU-_N-GxDY-jFHlu0SQkawsNdXKoZo_7gN0TyjfEFIU4Lx8Yeu4RjxKAIlSjkVihF-JJ4lrBSvzMHRFVzeCrKPH2R027Xk1zwRr_FEq8uB3_sVIp_ZRJPJBTQfd7__57YoHtvbd_t0zCfhh1p-A2TXXNfgLpS6QRTZswTP7eeGB0A-0yb2YYJVBi2lu0MfMhTMTfdsdmtNNDfVSFWSADKGGqrzAOAsaSGJBV3w3nqPW6lsMhi6GKxDcMh0DIVO62Q-auibwRbJg"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -178,6 +178,9 @@ void init_multipart_parser(alexa_response_t *alexa_response, char *boundary_term
     alexa_response->m_parser = m_parser;
     alexa_response->current_part = META_HEADERS;
 }
+
+
+
 
 
 /* send data  */
