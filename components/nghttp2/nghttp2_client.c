@@ -385,13 +385,13 @@ static int register_session_callbacks(http2_session_data *session_data,
     return ret;
 }
 
-static esp_err_t send_client_connection_header(http2_session_data *session_data)
+static esp_err_t send_client_connection_header(nghttp2_session *session)
 {
     nghttp2_settings_entry iv[1] = { { NGHTTP2_SETTINGS_MAX_CONCURRENT_STREAMS,
             10 } };
 
     /* client 24 bytes magic string will be sent by nghttp2 library */
-    int rv = nghttp2_submit_settings(session_data->session, NGHTTP2_FLAG_NONE, iv,
+    int rv = nghttp2_submit_settings(session, NGHTTP2_FLAG_NONE, iv,
             ARRLEN(iv));
     if (rv != 0) {
         ESP_LOGE(TAG, "Could not submit SETTINGS: %s", nghttp2_strerror(rv));
@@ -417,7 +417,8 @@ static esp_err_t submit_request(http2_session_data *session_data,
         const url_t *url,
         const nghttp2_nv *user_hdrs, size_t user_hdr_len,
         const char* method,
-        const nghttp2_data_provider *data_prd)
+        const nghttp2_data_provider *data_prd,
+        const void* stream_user_data)
 {
 
     int32_t stream_id;
@@ -447,7 +448,7 @@ static esp_err_t submit_request(http2_session_data *session_data,
     /* submit request */
 
     stream_id = nghttp2_submit_request(session_data->session, NULL, hdrs,
-            ARRLEN(hdrs), data_prd, (void*)url);
+            ARRLEN(hdrs), data_prd, stream_user_data);
 
     if (stream_id < 0) {
         ESP_LOGE(TAG, "Could not submit HTTP request: %s", nghttp2_strerror(stream_id));
@@ -707,6 +708,13 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
     bzero(buf, sizeof(buf));
 
     do {
+        /* send pending outgoing frames */
+        ret = nghttp2_session_send(http2_session->session);
+        if (ret != 0) {
+            ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
+            break;
+        }
+
         ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) );
         // ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
 
@@ -734,6 +742,7 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
 
         // ESP_LOGI(TAG, "%d bytes read", ret);
 
+        // copy received bytes to nghttp2
         ret = nghttp2_session_mem_recv(http2_session->session,
                 buf, ret);
 
@@ -741,15 +750,6 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
             ESP_LOGW(TAG, "Fatal error: %s", nghttp2_strerror((int ) ret));
             break;
         }
-
-
-        /* Serialize the frame and send (or buffer) the data to bufferevent. */
-        ret = nghttp2_session_send(http2_session->session);
-        if (ret != 0) {
-            ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
-            break;
-        }
-
 
     } while (ret >= 0);
 
@@ -772,7 +772,7 @@ static void event_loop_task(void *pvParameters)
 
 /* Make a new request. */
 esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
-                    void *user_data,
+                    void *stream_user_data,
 					char *uri, char *method,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
@@ -791,7 +791,6 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
         return ret;
     }
     http2_session = (*http2_session_ptr);
-    http2_session->user_data = user_data;
 
     /* parse url */
     if((url = url_create(uri)) == NULL) {
@@ -815,21 +814,27 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
 
     // send request
     ESP_LOGI(TAG, "Writing HTTP request...");
-    send_client_connection_header(http2_session);
-    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct)) < 0) {
+
+    // client settings
+    send_client_connection_header(http2_session->session);
+
+    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
     	url_free(url);
         free_http2_session_data(http2_session);
         return stream_id;
     }
 
-    /* start sending data */
+    nghttp2_session_set_stream_user_data(http2_session, stream_id, stream_user_data);
+
+    /* start sending data
     if ((ret = nghttp2_session_send(http2_session->session)) != 0 && ret != NGHTTP2_ERR_DEFERRED) {
     	ESP_LOGI(TAG, "session_send() returned %d",ret);
     	url_free(url);
         free_http2_session_data(http2_session);
         return ret;
     }
+    */
 
 
     /* Read HTTP response */
@@ -851,17 +856,11 @@ esp_err_t nghttp_get(char *uri)
     esp_err_t ret;
     http2_session_data *http2_session;
 
-    // add headers
-    nghttp2_nv hdrs[2] = {
-            MAKE_NV2("xx-authorization", "xxx"),
-            MAKE_NV2("xx-content-type", "yyy")
-    };
-
     ret = nghttp_new_request(
             &http2_session,
             NULL,
             uri, "GET",
-            hdrs, 2,
+            NULL, 0,
             NULL,
             on_header_callback,
             on_data_chunk_recv_callback,

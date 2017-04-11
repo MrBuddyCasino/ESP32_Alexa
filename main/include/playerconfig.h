@@ -13,7 +13,8 @@
 #endif
 
 #if 1
-#define PLAY_URL "http://mp3ad.egofm.c.nmdn.net/ps-egofmraw_192/livestream.mp3"
+//#define PLAY_URL "http://mp3ad.egofm.c.nmdn.net/ps-egofmraw_192/livestream.mp3"
+#define PLAY_URL "http://cdn-storage.br.de/iLCpbHJGNL9zu6i6NL97bmWH_-bf/_-ZS/_Abc_yxg5U1S/170331_1300_Tagesgespraech_Hochwasser-Soforthilfe.mp3"
 #endif
 
 /* You can use something like this to connect to a local mpd server which has a configured

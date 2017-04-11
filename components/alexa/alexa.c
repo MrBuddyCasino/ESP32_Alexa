@@ -41,7 +41,10 @@ typedef struct
 {
     alexa_request_t *request;
     alexa_response_t *response;
+    int32_t stream_id_downchannel;
 } alexa_session_t;
+
+static const alexa_session_t *alexa_session;
 
 
 /* Europe: alexa-eu / America: alexa-na */
@@ -53,7 +56,7 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define TAG "alexa"
 
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBIHUlZuHVHyXBrgY7RjJfGtuMDBc-qLUtya8Mc7JjonDboGrSqcCxgUgpmYIXzHfpycKQg3h4Gz6sJoZ-r3BGsv_FjWdYcH0gwIwgZN6KKHF-Yk2g7eYaJAIYjCnGh4hRdl7zznTOzPIWYXv32i6TFB0DyeXzK8BrZx4UMgn4CbQaOobhY9PJfnz_ItkQmPnPCn3Hh390vtkp-ACTP_t5PpoiZMQgtfU-ZzfNOYuA3plpO78VkuRvnd78USA8xbibefLsYfGNlKMBX1-8GU2gZajdeAG_nbviTvD9et6EQ-T7XGxycdvFb_r_7iVjs8C5MdrsF8KRK1eAWduLOGFZ8fgNEh2VVO6WBUhawKqWQio99da6DU3-pVXKZq4KFJ7rT7QfYaZGzCTLLTzcVOj9knZtMbq1az6yUVz7E44gJzyH-UOnL0mv9dCEGWNmf_zyocbFLy2cqQiQ_aQScBGl78KoXKaD8NeuFVJVkG4L0VOnzGQG_6PFjW8NkL4Mnnn-fKSqwpAGgLJW-jBGPLYH1J4_tJFbZWD1KdtIn3rWqgSrJQ"
+#define TOKEN "Bearer Atza|IwEBINjwVKAfNPX4MQR3dl_MelLPMXEtxkEJfyvNlvidkWy5lkFzynPIIcQmRkidPWZuyE7jsJGuDNjUMnqP0Y5v0s7JH1YquLFU3VJcLGTRzN0EfsEkhQv2q1mi5bc-wCFY0UITJtmEFLF05EHtr3TTDN_fTB22ingk1BaAZ_4M93mOPJ1QTm4I_cyRZqd8SznI1aCjzwW_McH6H3dTNEnzjUViwLr0LEo24cg-xLB5LRTksE52PFf-ET197Rbr4bUkROuPGI85Aj5-FQrPfYD4QLFHdggXZ-n2w8UDwzp4NKBhrHFFO9FZyMybMasUYYY_Zzw5pSJPzAg94rS5X8AB8g_WGvCddtnIU5zpAgw43p_9HnELJDRONVF8uxQXsob7ImAo_pHrUd7vCaKhTbwP57o6IYjLElypb-wjS8rtOqWdRiBTkyW9Dcn5R6JhnjeU4aFbBvzFjlgrKn7cuyhneFG0BZIjrHS_-l0WRmgLA5bfK6C0MjCpTB-mIutVwZQeYITxjhOfiMrXVa7oYr0ZS7BjkR3O-n-bjkzgKzk9rYF8Dg"
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -267,10 +270,11 @@ int header_callback(nghttp2_session *session,
                       const nghttp2_frame *frame,
                       const uint8_t *name, size_t namelen,
                       const uint8_t *value, size_t valuelen,
-                      uint8_t flags, void *user_data)
+                      uint8_t flags, void *user_data_ptr)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_session_t *alexa_session = session_data->user_data;
+
+    alexa_session_t *alexa_session =
+            nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
 
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
@@ -306,8 +310,7 @@ int header_callback(nghttp2_session *session,
 int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_session_t *alexa_session = session_data->user_data;
+    alexa_session_t *alexa_session = nghttp2_session_get_stream_user_data(session, stream_id);
 
     // will be non-null after boundary term was detected
     if(alexa_session->response->m_parser != NULL) {
@@ -348,30 +351,73 @@ int stream_close_callback(nghttp2_session *session, int32_t stream_id,
         NGHTTP2_NV_FLAG_NONE                                                   \
   }
 
-void alexa_init()
+
+void configure_audio_hw(player_t *player_config)
 {
-
-    http2_session_data *http2_session;
-
-    alexa_session_t *alexa_session = calloc(1, sizeof(alexa_session));
-    alexa_session->request = calloc(1, sizeof(alexa_request_t));
-    alexa_session->request->next_action = META_HEADERS;
-    alexa_session->response = calloc(1, sizeof(alexa_response_t));
-
-    // init player
-    player_t *player_config = calloc(1, sizeof(player_t));
-    alexa_session->response->player_config = player_config;
-    player_config->state = IDLE;
-
     // init renderer
-    player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
-    renderer_config_t *renderer_config = player_config->renderer_config;
+    renderer_config_t *renderer_config = calloc(1, sizeof(renderer_config_t));
     renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
     renderer_config->i2s_num = I2S_NUM_0;
     renderer_config->sample_rate = 44100;
     renderer_config->output_mode = I2S;
     renderer_config->sample_rate_modifier = 1.0;
+    player_config->renderer_config = renderer_config;
 
+    // init recorder
+}
+
+void open_downchannel(http2_session_data *http2_session, alexa_session_t *alexa_session)
+{
+
+    // add headers
+    nghttp2_nv hdrs[1] = {
+            MAKE_NV2("authorization", TOKEN)
+    };
+
+    esp_err_t ret = nghttp_new_request(&http2_session,
+                alexa_session,
+                uri_directives, "GET",
+                hdrs, 1,
+                NULL,
+                header_callback,
+                recv_callback,
+                stream_close_callback);
+
+}
+
+int create_alexa_session(alexa_session_t **session)
+{
+    (*session) = calloc(1, sizeof(alexa_session_t));
+
+    (*session)->request = calloc(1, sizeof(alexa_request_t));
+    (*session)->request->next_action = META_HEADERS;
+
+    (*session)->response = calloc(1, sizeof(alexa_response_t));
+
+    alexa_session = (*session);
+
+    return 0;
+}
+
+alexa_session_t* get_alexa_session()
+{
+    return alexa_session;
+}
+
+void alexa_init()
+{
+
+    http2_session_data *http2_session;
+    alexa_session_t *alexa_session;
+
+    create_alexa_session(&alexa_session);
+
+    // init player
+    alexa_session->response->player_config = calloc(1, sizeof(player_t));
+    alexa_session->response->player_config->state = IDLE;
+
+    // init hw
+    configure_audio_hw(alexa_session->response->player_config);
 
     nghttp2_data_provider *data_provider_struct = calloc(1,
             sizeof(nghttp2_data_provider));

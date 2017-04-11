@@ -15,6 +15,8 @@
 #include "audio_player.h"
 #include "audio_renderer.h"
 
+#include "servo.h"
+
 #define TAG "renderer"
 
 typedef enum {
@@ -88,6 +90,7 @@ static void init_i2s_dac(renderer_config_t *config)
 }
 
 /* render callback for the libmad synth */
+static unsigned int avg_val = 0;
 void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num_samples, unsigned int num_channels)
 {
 
@@ -129,8 +132,33 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
                 // DMA buffer full - retry
                 if(bytes_pushed == 0) {
                     i--;
+                } else {
+                    // avg_val = avg_val + sample_buff_ch0[i];
+
+                    // #define POWER 256
+                    // int alpha = 178;
+                    // avg_val = (alpha * sample_buff_ch0[i] + (POWER - alpha) * avg_val )/ POWER;
+
+                    // combine channels
+                    uint32_t duty = ((uint16_t) sample_buff_ch0[i] + (uint16_t) sample_buff_ch1[i]) / 2;
+
+                    // scale to 10 bits and clear top bits
+                    duty = ((duty >> 6) & 1023);
+
+                    // reduce degrees of rotation from 120° to 30°
+                    // duty = duty / 4;
+
+                    motor_pwm_set(duty);
                 }
             }
+
+            // update motor pwm with average
+            /*
+            avg_val = avg_val / num_samples;
+            uint32_t duty = ((avg_val >> 6) & 1023);
+            motor_pwm_set(duty);
+            avg_val = 0;
+            */
             break;
 
         case I2S_BITS_PER_SAMPLE_24BIT:
@@ -191,8 +219,12 @@ void audio_renderer_start(renderer_config_t *config)
     // update global
     curr_config = config;
     state = RENDER_ACTIVE;
-    // i2s_zero_dma_buffer(config->i2s_num);
     i2s_start(config->i2s_num);
+
+    // buffer might contain noise
+    i2s_zero_dma_buffer(config->i2s_num);
+
+    motor_pwm_init();
 }
 
 void audio_renderer_stop(renderer_config_t *config)

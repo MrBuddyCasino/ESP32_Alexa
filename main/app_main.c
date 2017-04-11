@@ -28,6 +28,7 @@
 #include "nghttp2/nghttp2.h"
 #include "nghttp2_client.h"
 #include "alexa.h"
+#include "ui.h"
 
 #define WIFI_LIST_NUM   10
 
@@ -147,6 +148,7 @@ static void start_web_radio()
     // DAC is consuming samples too fast by default
     renderer_config->sample_rate_modifier = 0.0625;
 #endif
+#
 
     // start radio
     web_radio_init(radio_config);
@@ -164,6 +166,11 @@ void app_main()
     EventGroupHandle_t wifi_event_group = xEventGroupCreate();
 
     nvs_flash_init();
+
+    // init UI
+    ui_init(GPIO_NUM_27);
+    ui_queue_event(UI_CONNECTING);
+
     initialise_wifi(wifi_event_group);
 
     // quick hack
@@ -181,7 +188,9 @@ void app_main()
     xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
                         false, true, portMAX_DELAY);
 
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
+    ui_queue_event(UI_CONNECTED);
+
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
 
     // start_web_radio();
 

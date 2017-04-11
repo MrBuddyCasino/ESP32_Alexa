@@ -38,11 +38,6 @@ typedef struct
     /* current number of outgoing streams */
     uint8_t num_outgoing_streams;
 
-    /* put in what you like */
-    void *user_data;
-
-    int32_t stream_id;
-
     /*
      * user data that is associated with a stream
      * retrieve with:

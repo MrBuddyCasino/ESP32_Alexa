@@ -26,6 +26,14 @@
 
 #define TAG "decoder"
 
+// The theoretical maximum frame size is 2881 bytes,
+// MPEG 2.5 Layer II, 8000 Hz @ 160 kbps, with a padding slot plus 8 byte MAD_BUFFER_GUARD.
+#define MAX_FRAME_SIZE (2889)
+
+// The theoretical minimum frame size of 24 plus 8 byte MAD_BUFFER_GUARD.
+#define MIN_FRAME_SIZE (32)
+
+// read buffer
 static char read_buf[MAX_FRAME_SIZE];
 
 static long buf_underrun_cnt;
@@ -55,6 +63,7 @@ static enum mad_flow input(struct mad_stream *stream, player_t *player) {
 
             // EOF reached, stop decoder when all frames have been consumed
             if(player->state == FINISHED) {
+                // clear the buffer
                 i2s_zero_dma_buffer(player->renderer_config->i2s_num);
                 return MAD_FLOW_STOP;
             }
@@ -71,7 +80,9 @@ static enum mad_flow input(struct mad_stream *stream, player_t *player) {
             spiRamFifoRead(&read_buf[rem], readable_bytes);
             rem += readable_bytes;
 
-            break;
+            // break the loop if we have at least enough to decode the smallest possible frame
+            if(rem >= MIN_FRAME_SIZE)
+                break;
         }
     }
 
