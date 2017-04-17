@@ -12,11 +12,18 @@
 #include "nghttp2/nghttp2.h"
 #include "cJSON.h"
 #include "esp_log.h"
+#include "driver/gpio.h"
+
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+#include "freertos/event_groups.h"
 
 #include "nghttp2_client.h"
 #include "multipart_parser.h"
 
 #include "audio_player.h"
+#include "controls.h"
+#include "alexa.h"
 
 
 typedef enum
@@ -34,29 +41,33 @@ typedef struct
 {
     multipart_parser* m_parser;
     part_type_t current_part;
-    player_t *player_config;
 } alexa_response_t;
 
-typedef struct
-{
+typedef struct {
     alexa_request_t *request;
     alexa_response_t *response;
-    int32_t stream_id_downchannel;
-} alexa_session_t;
+} exchange_t;
 
-static const alexa_session_t *alexa_session;
+
+static alexa_session_t *alexa_session;
+static http2_session_data *http2_session;
+
+const int AUTH_TOKEN_VALID_BIT = BIT(1);
+const int DOWNCHAN_CONNECTED_BIT = BIT(3);
 
 
 /* Europe: alexa-eu / America: alexa-na */
 static char *uri_directives =
         "https://avs-alexa-eu.amazon.com/v20160207/directives";
 static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
-// static char *uri_events = "https://192.168.101.20:8443/test-server/";
 
 #define TAG "alexa"
 
+#define BEARER "Bearer "
 #define NL "\r\n"
-#define TOKEN "Bearer Atza|IwEBINjwVKAfNPX4MQR3dl_MelLPMXEtxkEJfyvNlvidkWy5lkFzynPIIcQmRkidPWZuyE7jsJGuDNjUMnqP0Y5v0s7JH1YquLFU3VJcLGTRzN0EfsEkhQv2q1mi5bc-wCFY0UITJtmEFLF05EHtr3TTDN_fTB22ingk1BaAZ_4M93mOPJ1QTm4I_cyRZqd8SznI1aCjzwW_McH6H3dTNEnzjUViwLr0LEo24cg-xLB5LRTksE52PFf-ET197Rbr4bUkROuPGI85Aj5-FQrPfYD4QLFHdggXZ-n2w8UDwzp4NKBhrHFFO9FZyMybMasUYYY_Zzw5pSJPzAg94rS5X8AB8g_WGvCddtnIU5zpAgw43p_9HnELJDRONVF8uxQXsob7ImAo_pHrUd7vCaKhTbwP57o6IYjLElypb-wjS8rtOqWdRiBTkyW9Dcn5R6JhnjeU4aFbBvzFjlgrKn7cuyhneFG0BZIjrHS_-l0WRmgLA5bfK6C0MjCpTB-mIutVwZQeYITxjhOfiMrXVa7oYr0ZS7BjkR3O-n-bjkzgKzk9rYF8Dg"
+#define REFRESH_TOKEN "Atzr|IwEBINGvR3LnNv9DLvCBuwN1JSc-A3NTnxVCzpuGcKra50U6jDx9ONI4X3b1VoQBedw5IFIr7MAttml0Zl3ONi73kjusEviQ6TiQeMyFNCyLt_XKy-iX000NiIqdrbNtNNCCZuVTYfARc8NLwFGfiz75tp7KLrgFpO2RK8VpcS9fchl9OEA_tMGzdypy_P2PHcAoGdp4-HUXRKeIBRiJ30TB7EqFypSp_PUqmLLQhnk3NsWa7TJYT3QaMXDBWPeZSRJnfHn_deWRoiP1oAA-BOfUz3E_F8HymVIiXT6XY4Fu2nZ7ZcBymreiIXmQz_ZySf-oyLBQdkZChYdjheyol7zX9n_jTGHKXZib7NSZcvDg3V2eul6qJdSZNRGVPE5gfyBDDXbTUe6UQQaOxQkaJVFJnkFX7MI_vv7fpw0GJTtX24y3OVptOuvr2ovkaglHFGXLT9CvEbjioCEROalK4C29EKZAgo9iWHCAre9xHYSfIfZ8_vZ4-xWHHECwYEBtW_7gkzXU0jXq6EKJ9TTFzekMoLK_"
+#define REFRESH_TOKEN_URI "http://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN
+
 #define BOUNDARY_TERM "nghttp2123456789"
 #define BOUNDARY_LINE NL "--" BOUNDARY_TERM NL
 #define BOUNDARY_EOF NL "--" BOUNDARY_TERM "--" NL
@@ -71,8 +82,56 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 #define AUDIO_PART_PREFIX BOUNDARY_LINE HDR_DISP_AUDIO HDR_TYPE_OCTET NL
 
 /* embedded file */
-extern const uint8_t file_start[] asm("_binary_what_time_raw_start");
-extern const uint8_t file_end[] asm("_binary_what_time_raw_end");
+extern uint8_t file_start[] asm("_binary_what_time_raw_start");
+extern uint8_t file_end[] asm("_binary_what_time_raw_end");
+
+
+
+static int create_alexa_session()
+{
+    alexa_session = calloc(1, sizeof(alexa_session_t));
+
+    alexa_session->event_group = xEventGroupCreate();
+
+    // init player
+    alexa_session->player_config = calloc(1, sizeof(player_t));
+    alexa_session->player_config->state = IDLE;
+    alexa_session->player_config->buffer_pref = FAST;
+
+    // init rest
+    alexa_session->downchannel = calloc(1, sizeof(alexa_stream_t));
+    alexa_session->downchannel->status = CONN_CLOSED;
+
+    return 0;
+}
+
+/*
+static int destroy_alexa_session(alexa_session_t *session)
+{
+    free(session->request);
+    free(session->response);
+    free(session);
+
+    return 0;
+}
+*/
+
+alexa_session_t *get_alexa_session()
+{
+    return alexa_session;
+}
+
+
+http2_session_data *get_http2_session()
+{
+    return http2_session;
+}
+
+void set_http2_session(http2_session_data *session)
+{
+    http2_session = session;
+}
+
 
 static char* create_json_metadata()
 {
@@ -100,18 +159,21 @@ static char* create_json_metadata()
     return rendered;
 }
 
-static bool did_yield = false;
 
 
 /* multipart callbacks */
-int on_header_field(multipart_parser *parser, const char *at, size_t length) {
-    alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+int on_header_field(multipart_parser *parser, const char *at, size_t length)
+{
+    // alexa_response_t *alexa_response = multipart_parser_get_data(parser);
 
     printf("on_header_field %.*s\n", (int)length, at);
     return 0;
 }
-int on_header_value(multipart_parser *parser, const char *at, size_t length) {
+
+int on_header_value(multipart_parser *parser, const char *at, size_t length)
+{
     alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+    alexa_session_t *alexa_session = get_alexa_session();
 
     // assumes audio on application/octet-stream
     if(strncmp("application/octet-stream", at, length) == 0) {
@@ -119,21 +181,24 @@ int on_header_value(multipart_parser *parser, const char *at, size_t length) {
         alexa_response->current_part = AUDIO_DATA;
 
         printf("starting player\n");
-        audio_player_init(alexa_response->player_config);
-        audio_player_start(alexa_response->player_config);
+        audio_player_init(alexa_session->player_config);
+        audio_player_start(alexa_session->player_config);
     }
 
     printf("on_header_value %.*s\n", (int)length, at);
 
     return 0;
 }
-int on_part_data(multipart_parser *parser, const char *at, size_t length) {
+
+int on_part_data(multipart_parser *parser, const char *at, size_t length)
+{
     alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+    alexa_session_t *alexa_session = get_alexa_session();
 
     if(alexa_response->current_part == AUDIO_DATA)
     {
         // printf("feeding player\n");
-        audio_stream_consumer(at, length, alexa_response->player_config);
+        audio_stream_consumer(at, length, alexa_session->player_config);
     }
 
     // printf("%.*s: ", length, at);
@@ -147,15 +212,21 @@ int on_part_data_begin(multipart_parser *parser)
     return 0;
 }
 
-int on_headers_complete(multipart_parser *parser)   { printf("on_headers_complete\n"); return 0; }
+int on_headers_complete(multipart_parser *parser)
+{
+    printf("on_headers_complete\n"); return 0;
+}
+
 int on_part_data_end(multipart_parser *parser)
 {
     alexa_response_t *alexa_response = multipart_parser_get_data(parser);
+    alexa_session_t *alexa_session = get_alexa_session();
+
     printf("on_part_data_end\n");
 
     if(alexa_response->current_part == AUDIO_DATA) {
         printf("stopping player\n");
-        alexa_response->player_config->state = FINISHED;
+        alexa_session->player_config->state = FINISHED;
         // audio_player_stop(alexa_response->player_config);
     }
 
@@ -191,22 +262,20 @@ void init_multipart_parser(alexa_response_t *alexa_response, char *boundary_term
 
 
 
-
-
 /* send data  */
+static bool yield = false;
 ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
         uint8_t *buf, size_t buf_length, uint32_t *data_flags,
         nghttp2_data_source *data_source, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
-    alexa_request_t *alexa_session = data_source->ptr;
+    alexa_request_t *alexa_request = data_source->ptr;
 
     ssize_t bytes_written = 0;
-    part_type_t next_action = alexa_session->next_action;
+    part_type_t next_action = alexa_request->next_action;
 
-    if(!did_yield) {
-        did_yield = true;
-        // return NGHTTP2_ERR_DEFERRED;
+    if(yield) {
+        yield = false;
+        return NGHTTP2_ERR_DEFERRED;
     }
 
     switch (next_action) {
@@ -224,31 +293,33 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
             free(json);
             bytes_written = prefix_len + json_len;
 
-            alexa_session->next_action = AUDIO_HEADERS;
+            alexa_request->next_action = AUDIO_HEADERS;
             break;
 
         case AUDIO_HEADERS:
             bytes_written = strlen(AUDIO_PART_PREFIX);
             memcpy(buf, AUDIO_PART_PREFIX, bytes_written);
-            alexa_session->next_action = AUDIO_DATA;
+            alexa_request->next_action = AUDIO_DATA;
             break;
 
         case AUDIO_DATA:
 
-            if(alexa_session->file_pos == 0)
-                alexa_session->file_pos = file_start;
+            if(alexa_request->file_pos == 0)
+                alexa_request->file_pos = file_start;
 
-            uint8_t *pos = alexa_session->file_pos;
+            uint8_t *pos = alexa_request->file_pos;
             // size_t file_size = file_end - file_start;
             size_t remaining = file_end - pos;
             bytes_written = buf_length < remaining ? buf_length : remaining;
             memcpy(buf, pos, bytes_written);
 
             if(buf_length > remaining) {
-                alexa_session->next_action = DONE;
+                alexa_request->next_action = DONE;
+            } else {
+                yield = true;
             }
 
-            alexa_session->file_pos += bytes_written;
+            alexa_request->file_pos += bytes_written;
 
             break;
 
@@ -265,15 +336,100 @@ ssize_t data_source_read_callback(nghttp2_session *session, int32_t stream_id,
     return bytes_written;
 }
 
+
+typedef struct {
+    char *buf;
+    size_t len;
+} buffer_t;
+
+int auth_recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
+        const uint8_t *data, size_t len, void *user_data)
+{
+    // alexa_session_t *alexa_session = user_data;
+    buffer_t *buffer = nghttp2_session_get_stream_user_data(session, stream_id);
+
+    // grow the buffer
+    // If the ptr argument is NULL, realloc acts like malloc()
+    buffer->buf = realloc(buffer->buf, buffer->len + len);
+
+    if(buffer->buf == NULL) {
+        // TODO: insufficient memory for reallocation
+    }
+
+    memcpy((buffer->buf) + (buffer->len), data, len);
+    buffer->len += len;
+
+    return 0;
+}
+
+int auth_on_stream_close_callback(nghttp2_session *session,
+                                    int32_t stream_id,
+                                    uint32_t error_code,
+                                    void *user_data)
+{
+    alexa_session_t *alexa_session = user_data;
+    buffer_t *buffer = nghttp2_session_get_stream_user_data(session, stream_id);
+
+    buffer->buf = realloc(buffer->buf, buffer->len + 1);
+    buffer->buf[buffer->len] = '\0';
+
+    cJSON *root = cJSON_Parse(buffer->buf);
+    cJSON *token_item = cJSON_GetObjectItem(root, "access_token");
+    char *access_token = token_item->valuestring;
+
+    if(alexa_session->auth_token != NULL) {
+        free(alexa_session->auth_token);
+    }
+    alexa_session->auth_token = strdup(access_token);
+
+    cJSON_Delete(root);
+    free(buffer->buf);
+    free(buffer);
+
+    xEventGroupSetBits(alexa_session->event_group, AUTH_TOKEN_VALID_BIT);
+
+    return 0;
+}
+
+/* get a new authentication token */
+void auth_token_refresh(alexa_session_t *alexa_session)
+{
+    // char *uri = "http://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN;
+
+    buffer_t *buffer = calloc(1, sizeof(buffer_t));
+    buffer->len = 0;
+
+    nghttp2_session_callbacks *callbacks;
+    create_default_callbacks(&callbacks);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, auth_recv_callback);
+    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, auth_on_stream_close_callback);
+
+    http2_session_data *http2_session_auth;
+    int ret = nghttp_new_session(&http2_session_auth,
+                    REFRESH_TOKEN_URI, "GET",
+                    NULL, 0,
+                    NULL,
+                    callbacks,
+                    buffer,
+                    alexa_session);
+
+    if(ret != 0) {
+        // TODO
+    }
+
+    xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task_auth", 8192, http2_session_auth, 1, NULL, 0);
+}
+
 /* receive header */
 int header_callback(nghttp2_session *session,
                       const nghttp2_frame *frame,
                       const uint8_t *name, size_t namelen,
                       const uint8_t *value, size_t valuelen,
-                      uint8_t flags, void *user_data_ptr)
+                      uint8_t flags, void *user_data)
 {
 
-    alexa_session_t *alexa_session =
+    alexa_session_t *alexa_session = get_alexa_session();
+    exchange_t *exchange =
             nghttp2_session_get_stream_user_data(session, frame->hd.stream_id);
 
     switch (frame->hd.type) {
@@ -282,9 +438,29 @@ int header_callback(nghttp2_session *session,
             /* Print response headers for the initiated request. */
             printf("%s: %s\n", name, value);
 
+            // check downchannel stream reply status
+            if(frame->hd.stream_id == alexa_session->downchannel->stream_id) {
+                if(strcmp(":status", (char*) name) == 0) {
+                    int status_code = atoi((const char *) value);
+                    switch(status_code) {
+
+                        case 403:
+                            xEventGroupClearBits(alexa_session->event_group, AUTH_TOKEN_VALID_BIT);
+                            alexa_session->downchannel->status = CONN_UNAUTHORIZED;
+                            auth_token_refresh(alexa_session);
+                            // this will close the stream
+                            return NGHTTP2_ERR_TEMPORAL_CALLBACK_FAILURE;
+
+                        case 200:
+                            alexa_session->downchannel->status = CONN_OPEN;
+                        break;
+                    }
+                }
+            }
+
             // parse boundary term
-            if(strcmp("content-type", (char*)name) == 0) {
-                char* start = strstr((char*)value, "boundary=");
+            if(strcmp("content-type", (char*) name) == 0) {
+                char* start = strstr((char*) value, "boundary=");
                 if(start != NULL) {
                     start += strlen("boundary=");
                     char* end = strstr(start, ";");
@@ -294,7 +470,7 @@ int header_callback(nghttp2_session *session,
                         char* boundary_term = strndup(start, end - start);
                         boundary_term[0] = '-';
                         boundary_term[1] = '-';
-                        init_multipart_parser(alexa_session->response, boundary_term);
+                        init_multipart_parser(exchange->response, boundary_term);
                     }
                 }
             }
@@ -310,11 +486,11 @@ int header_callback(nghttp2_session *session,
 int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data)
 {
-    alexa_session_t *alexa_session = nghttp2_session_get_stream_user_data(session, stream_id);
+    exchange_t *exchange = nghttp2_session_get_stream_user_data(session, stream_id);
 
     // will be non-null after boundary term was detected
-    if(alexa_session->response->m_parser != NULL) {
-        multipart_parser_execute(alexa_session->response->m_parser, (char*)data, len);
+    if(exchange->response->m_parser != NULL) {
+        multipart_parser_execute(exchange->response->m_parser, (char*)data, len);
     }
 
     // printf("%.*s", len, data);
@@ -325,11 +501,15 @@ int recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
 int stream_close_callback(nghttp2_session *session, int32_t stream_id,
         uint32_t error_code, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
     ESP_LOGI(TAG, "closed stream %d with error_code=%u", stream_id, error_code);
 
+    // req/res cycle has finished
+    exchange_t *exchange = nghttp2_session_get_stream_user_data(session, stream_id);
+    free(exchange);
+
+    http2_session_data *session_data = get_http2_session();
     session_data->num_outgoing_streams--;
-    if (session_data->num_outgoing_streams == 0) {
+    if (session_data->num_outgoing_streams < 1) {
         ESP_LOGE(TAG, "no more open streams, terminating session");
         if (nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR) != 0) {
             return NGHTTP2_ERR_CALLBACK_FAILURE;
@@ -351,6 +531,24 @@ int stream_close_callback(nghttp2_session *session, int32_t stream_id,
         NGHTTP2_NV_FLAG_NONE                                                   \
   }
 
+static void print_header(const uint8_t *name, size_t namelen,
+        const uint8_t *value, size_t valuelen)
+{
+    printf("%s: %s\n", name, value);
+}
+
+/* Print HTTP headers to |f|. Please note that this function does not
+ take into account that header name and value are sequence of
+ octets, therefore they may contain non-printable characters. */
+static void print_headers(nghttp2_nv *nva, size_t nvlen)
+{
+    size_t i;
+    for (i = 0; i < nvlen; ++i) {
+        print_header(nva[i].name, nva[i].namelen, nva[i].value,
+                nva[i].valuelen);
+    }
+    printf("\n");
+}
 
 void configure_audio_hw(player_t *player_config)
 {
@@ -366,81 +564,159 @@ void configure_audio_hw(player_t *player_config)
     // init recorder
 }
 
-void open_downchannel(http2_session_data *http2_session, alexa_session_t *alexa_session)
-{
+static char* build_auth_header(char* auth_token) {
+    size_t buf_len = strlen(BEARER) + strlen(auth_token) + 1;
+    char *auth_header = calloc(buf_len, sizeof(char));
+    strcpy(auth_header, BEARER);
+    strcpy(auth_header + strlen(BEARER), auth_token);
 
-    // add headers
-    nghttp2_nv hdrs[1] = {
-            MAKE_NV2("authorization", TOKEN)
-    };
-
-    esp_err_t ret = nghttp_new_request(&http2_session,
-                alexa_session,
-                uri_directives, "GET",
-                hdrs, 1,
-                NULL,
-                header_callback,
-                recv_callback,
-                stream_close_callback);
-
+    return auth_header;
 }
 
-int create_alexa_session(alexa_session_t **session)
+
+/* nghttp2_on_frame_recv_callback: Called when nghttp2 library
+ received a complete frame from the remote peer. */
+static int on_frame_recv_callback(nghttp2_session *session,
+        const nghttp2_frame *frame, void *user_data)
 {
-    (*session) = calloc(1, sizeof(alexa_session_t));
+    alexa_session_t *alexa_session = user_data;
 
-    (*session)->request = calloc(1, sizeof(alexa_request_t));
-    (*session)->request->next_action = META_HEADERS;
+    switch (frame->hd.type) {
+        case NGHTTP2_HEADERS:
+            print_headers(frame->headers.nva, frame->headers.nvlen);
+            if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
+                ESP_LOGI(TAG, "All headers received");
 
-    (*session)->response = calloc(1, sizeof(alexa_response_t));
+                if(frame->headers.hd.stream_id == alexa_session->downchannel->stream_id) {
+                    // once all headers for the downchannel are received, we're clear
+                    xEventGroupSetBits(alexa_session->event_group, DOWNCHAN_CONNECTED_BIT);
+                }
+            }
+            break;
 
-    alexa_session = (*session);
+        default:
+            ESP_LOGI(TAG, "frame received: %u", frame->hd.type);
+            break;
 
+    }
     return 0;
 }
 
-alexa_session_t* get_alexa_session()
-{
-    return alexa_session;
-}
 
-void alexa_init()
+int open_downchannel(alexa_session_t *alexa_session)
 {
-
+    int ret;
     http2_session_data *http2_session;
-    alexa_session_t *alexa_session;
 
-    create_alexa_session(&alexa_session);
+    exchange_t *exchange = calloc(1, sizeof(exchange_t));
+    exchange->request = calloc(1, sizeof(alexa_request_t));
+    exchange->request->next_action = META_HEADERS;
+    exchange->response = calloc(1, sizeof(alexa_response_t));
 
-    // init player
-    alexa_session->response->player_config = calloc(1, sizeof(player_t));
-    alexa_session->response->player_config->state = IDLE;
+    // authenticate
+    if(alexa_session->auth_token == NULL) {
+        ESP_LOGI(TAG, "auth token null, authenticating");
+        auth_token_refresh(alexa_session);
+        xEventGroupWaitBits(alexa_session->event_group, AUTH_TOKEN_VALID_BIT,
+                                    false, true, portMAX_DELAY);
+    }
 
-    // init hw
-    configure_audio_hw(alexa_session->response->player_config);
-
-    nghttp2_data_provider *data_provider_struct = calloc(1,
-            sizeof(nghttp2_data_provider));
-    data_provider_struct->read_callback = data_source_read_callback;
-    data_provider_struct->source.ptr = alexa_session->request;
+    char *auth_header = build_auth_header(alexa_session->auth_token);
 
     // add headers
+    nghttp2_nv hdrs[1] = {
+            MAKE_NV2("authorization", auth_header)
+    };
+
+    nghttp2_session_callbacks *callbacks;
+    create_default_callbacks(&callbacks);
+    nghttp2_session_callbacks_set_on_header_callback(callbacks, header_callback);
+    nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks, on_frame_recv_callback);
+    nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks, recv_callback);
+    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, stream_close_callback);
+
+    ret = nghttp_new_session(&http2_session,
+                uri_directives, "GET",
+                hdrs, 1,
+                NULL,
+                callbacks,
+                exchange,
+                alexa_session);
+
+    set_http2_session(http2_session);
+
+    /* start read write loop */
+    xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task", 8192, http2_session, 1, NULL, 0);
+
+    return ret;
+}
+
+int send_speech(http2_session_data *http2_session)
+{
+    exchange_t *exchange = calloc(1, sizeof(exchange_t));
+    exchange->request = calloc(1, sizeof(alexa_request_t));
+    exchange->request->next_action = META_HEADERS;
+    exchange->response = calloc(1, sizeof(alexa_response_t));
+
+    nghttp2_data_provider *data_provider_struct = calloc(1,
+                sizeof(nghttp2_data_provider));
+    data_provider_struct->read_callback = data_source_read_callback;
+    data_provider_struct->source.ptr = exchange->request;
+
+    // add headers
+    char *auth_header = build_auth_header(alexa_session->auth_token);
     nghttp2_nv hdrs[2] = {
-            MAKE_NV2("authorization", TOKEN),
+            MAKE_NV2("authorization", auth_header),
             MAKE_NV2("content-type", HDR_FORM_DATA)
     };
 
-    esp_err_t ret = nghttp_new_request(&http2_session,
-            alexa_session,
+
+    int ret = nghttp_new_stream(http2_session,
+            exchange,
             uri_events, "POST",
             hdrs, 2,
-            data_provider_struct,
-            header_callback,
-            recv_callback,
-            stream_close_callback);
+            data_provider_struct);
 
     // struct has now been copied by nghttp2
     free(data_provider_struct);
 
-    return;
+    return ret;
+}
+
+void alexa_gpio_handler_task(void *pvParams)
+{
+    gpio_handler_param_t *params = pvParams;
+    xQueueHandle gpio_evt_queue = params->gpio_evt_queue;
+
+    uint32_t io_num;
+    for(;;) {
+        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+
+            send_speech(get_http2_session());
+        }
+    }
+}
+
+int alexa_init()
+{
+    create_alexa_session();
+    alexa_session_t *alexa_session = get_alexa_session();
+
+    // create I2S config
+    configure_audio_hw(get_alexa_session()->player_config);
+
+    controls_init(alexa_gpio_handler_task, 4096, alexa_session);
+
+    // conn should remain open
+    open_downchannel(alexa_session);
+
+    // wait until downchannel is connected
+    xEventGroupWaitBits(alexa_session->event_group, DOWNCHAN_CONNECTED_BIT,
+                            false, true, portMAX_DELAY);
+
+    // send voice
+    send_speech(get_http2_session());
+
+    return 0;
 }

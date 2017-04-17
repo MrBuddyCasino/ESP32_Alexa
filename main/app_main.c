@@ -18,17 +18,14 @@
 
 #include "driver/i2s.h"
 
+#include "ui.h"
 #include "spiram_fifo.h"
 #include "audio_renderer.h"
 #include "web_radio.h"
 #include "playerconfig.h"
 #include "app_main.h"
-
-
-#include "nghttp2/nghttp2.h"
-#include "nghttp2_client.h"
 #include "alexa.h"
-#include "ui.h"
+
 
 #define WIFI_LIST_NUM   10
 
@@ -92,6 +89,8 @@ static void alexa_task(void *pvParameters)
     alexa_init();
     ESP_LOGI(TAG, "alexa_task stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
+    // controls_init();
+
     vTaskDelete(NULL);
 }
 
@@ -134,6 +133,7 @@ static void start_web_radio()
     // init player config
     radio_config->player_config = calloc(1, sizeof(player_t));
     radio_config->player_config->state = STOPPED;
+    radio_config->player_config->buffer_pref = SAFE;
 
     // init renderer
     radio_config->player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
@@ -142,13 +142,19 @@ static void start_web_radio()
     renderer_config->i2s_num = I2S_NUM_0;
     renderer_config->sample_rate = 44100;
     renderer_config->sample_rate_modifier = 1.0;
-    renderer_config->output_mode = CONFIG_OUTPUT_MODE;
+    renderer_config->output_mode = AUDIO_OUTPUT_MODE;
 
-#ifdef DAC_BUG_WORKAROUND
-    // DAC is consuming samples too fast by default
-    renderer_config->sample_rate_modifier = 0.0625;
+    if(renderer_config->output_mode == I2S_MERUS) {
+        renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_32BIT;
+    }
+
+    if(renderer_config->output_mode == DAC_BUILT_IN) {
+        renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_8BIT;
+#ifdef CONFIG_DAC_BUG_WORKAROUND
+        // DAC is consuming samples too fast by default
+        renderer_config->sample_rate_modifier = 0.0625;
 #endif
-#
+    }
 
     // start radio
     web_radio_init(radio_config);
@@ -168,7 +174,7 @@ void app_main()
     nvs_flash_init();
 
     // init UI
-    ui_init(GPIO_NUM_27);
+    ui_init(GPIO_NUM_32);
     ui_queue_event(UI_CONNECTING);
 
     initialise_wifi(wifi_event_group);
@@ -190,9 +196,9 @@ void app_main()
 
     ui_queue_event(UI_CONNECTED);
 
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
+    //xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
 
-    // start_web_radio();
+    start_web_radio();
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 

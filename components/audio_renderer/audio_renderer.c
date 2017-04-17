@@ -3,6 +3,9 @@
  *
  *  Created on: 12.03.2017
  *      Author: michaelboeckling
+ *
+ *  Rev. 17.4.2017/Jorgen Kragh Jakobsen
+ *      Added 32 bit entry for i2s output and setup i2c call for Merus Audio power audio amp. 
  */
 
 #include <stdbool.h>
@@ -11,6 +14,7 @@
 
 #include "esp_log.h"
 #include "driver/i2s.h"
+#include "MerusAudio.h"
 
 #include "audio_player.h"
 #include "audio_renderer.h"
@@ -29,11 +33,13 @@ static renderer_config_t *curr_config;
 static renderer_state_t state;
 
 
-static short convert_16bit_stereo_to_8bit_stereo(short left, short right)
+static unsigned short convert_16bit_stereo_to_8bit_stereo(short left, short right)
 {
-    unsigned short sample = (unsigned short) left;
-    sample = (sample << 8 & 0xff00) | (((unsigned short) right >> 8) & 0x00ff);
-    return sample;
+    // The right shift by 8 reduces the sample range to -0x80 to +0x7f.
+    // Adding 0x80 shifts this range to be between 0x00 and 0xff, which is what the built-in DAC expects.
+    left = (left >> 8) + 0x80;
+    right = (right >> 8) + 0x80;
+    return (left << 8) | (right & 0xff);
 }
 
 static int convert_16bit_stereo_to_16bit_stereo(short left, short right)
@@ -67,6 +73,7 @@ static void init_i2s(renderer_config_t *config)
     i2s_driver_install(config->i2s_num, &i2s_config, 0, NULL);
     i2s_set_pin(config->i2s_num, &pin_config);
 }
+
 
 /*
  * Output audio without I2S codec via built-in 8-Bit DAC.
@@ -148,17 +155,9 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
                     // reduce degrees of rotation from 120° to 30°
                     // duty = duty / 4;
 
-                    motor_pwm_set(duty);
+                    // motor_pwm_set(duty);
                 }
             }
-
-            // update motor pwm with average
-            /*
-            avg_val = avg_val / num_samples;
-            uint32_t duty = ((avg_val >> 6) & 1023);
-            motor_pwm_set(duty);
-            avg_val = 0;
-            */
             break;
 
         case I2S_BITS_PER_SAMPLE_24BIT:
@@ -167,8 +166,24 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
             break;
 
         case I2S_BITS_PER_SAMPLE_32BIT:
-            // TODO
-            ESP_LOGE(TAG, "32 bit unsupported");
+            for (int i=0; i< num_samples; i++) { 
+			  
+			  if (state == RENDER_STOPPED)
+			     break;
+			  
+			  char high0 = sample_buff_ch0[i]>>8;
+			  char mid0  = sample_buff_ch0[i] & 0xff; 
+			  char high1 = sample_buff_ch1[i]>>8;
+			  char mid1  = sample_buff_ch1[i] & 0xff; 
+              const char samp32[8] = {0,0,mid0,high0,0,0,mid1,high1};
+			  
+			  int bytes_pushed = i2s_push_sample(curr_config->i2s_num,  (char *)&samp32, delay);
+              
+			  // DMA buffer full - retry
+              if(bytes_pushed == 0) {
+                    i--;
+              }
+			}
             break;
     }
 }
@@ -201,9 +216,15 @@ void audio_renderer_init(renderer_config_t *config)
     switch (config->output_mode) {
         case I2S:
             init_i2s(config);
+	        break;
+
+        case I2S_MERUS:
+            init_i2s(config);
+            init_ma120(0x50);           // setup ma120x0p and initial volume 
             break;
 
         case DAC_BUILT_IN:
+            curr_config->bit_depth = I2S_BITS_PER_SAMPLE_8BIT;
             init_i2s_dac(config);
             break;
 

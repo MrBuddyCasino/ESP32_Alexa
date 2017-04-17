@@ -13,8 +13,7 @@
 #endif
 
 #if 1
-//#define PLAY_URL "http://mp3ad.egofm.c.nmdn.net/ps-egofmraw_192/livestream.mp3"
-#define PLAY_URL "http://cdn-storage.br.de/iLCpbHJGNL9zu6i6NL97bmWH_-bf/_-ZS/_Abc_yxg5U1S/170331_1300_Tagesgespraech_Hochwasser-Soforthilfe.mp3"
+#define PLAY_URL "http://mp3ad.egofm.c.nmdn.net/ps-egofmraw_192/livestream.mp3"
 #endif
 
 /* You can use something like this to connect to a local mpd server which has a configured
@@ -29,6 +28,9 @@ rate! */
 #if 0
 #define PLAY_URL "http://meuk.spritesserver.nl/Ii.Romanzeandante.mp3"
 #endif
+
+// defined via 'make menuconfig'
+#define AUDIO_OUTPUT_MODE CONFIG_AUDIO_OUTPUT_MODE
 
 
 
@@ -56,16 +58,6 @@ the music sounding higher/lower due to network issues.*/
 Same as ADD_DEL_BUFFPERSAMP but for systems without a big SPI RAM chip to buffer mp3 data in.*/
 #define ADD_DEL_BUFFPERSAMP_NOSPIRAM (1500)
 
-
-/* Connecting an I2S codec to the ESP is the best way to get nice
-16-bit sounds out of the ESP, but it is possible to run this code without the codec. For
-this to work, instead of outputting a 2x16bit PCM sample the DAC can decode, we use the built-in
-8-Bit DAC.*/
-#define CONFIG_OUTPUT_MODE I2S // possible values: I2S, DAC_BUILT_IN
-
-/* there is currently a bug in the SDK when using the built-in DAC - this is a temporary
-   workaround until the issue is fixed */
-// #define DAC_BUG_WORKAROUND
 
 
 /*While a large (tens to hundreds of K) buffer is necessary for Internet streams, on a

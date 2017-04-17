@@ -164,7 +164,7 @@ static esp_err_t alloc_http2_session_data(http2_session_data **session_data_ptr)
 }
 
 
-static void free_http2_session_data(http2_session_data *session_data)
+void free_http2_session_data(http2_session_data *session_data)
 {
 
     if (session_data->ssl_session->ssl_context) {
@@ -174,7 +174,6 @@ static void free_http2_session_data(http2_session_data *session_data)
     }
 
     nghttp2_session_del(session_data->session);
-    session_data->session = NULL;
 
     free(session_data);
 }
@@ -302,17 +301,7 @@ static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
 static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
         uint32_t error_code, void *user_data)
 {
-    http2_session_data *session_data = (http2_session_data *) user_data;
-
     ESP_LOGI(TAG, "closed stream %d with error_code=%u", stream_id, error_code);
-
-	session_data->num_outgoing_streams--;
-    if (session_data->num_outgoing_streams == 0) {
-        ESP_LOGE(TAG, "no more open streams, terminating session");
-        if (nghttp2_session_terminate_session(session, NGHTTP2_NO_ERROR) != 0) {
-            return NGHTTP2_ERR_CALLBACK_FAILURE;
-        }
-    }
 
     return 0;
 }
@@ -339,21 +328,13 @@ ssize_t data_source_read_length_callback (
 }
 
 
-/**
- *  *session_data is our handle
- */
-static int register_session_callbacks(http2_session_data *session_data,
-                        nghttp2_on_header_callback on_hdr_callback,
-                        nghttp2_on_data_chunk_recv_callback recv_callback,
-                        nghttp2_on_stream_close_callback stream_close_callback)
+int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr)
 {
-    int ret = 0;
+    nghttp2_session_callbacks *callbacks = (*callbacks_ptr);
 
-    nghttp2_session_callbacks *callbacks;
-
-    if((ret = nghttp2_session_callbacks_new(&callbacks)) != 0) {
+    if((nghttp2_session_callbacks_new(&callbacks)) == NGHTTP2_ERR_NOMEM) {
         ESP_LOGE(TAG, "failed to allocate nghttp2_session_callbacks");
-        return ret;
+        return NGHTTP2_ERR_NOMEM;
     }
 
     // Here we transmit the data to the network.
@@ -363,13 +344,13 @@ static int register_session_callbacks(http2_session_data *session_data,
             on_frame_recv_callback);
 
     nghttp2_session_callbacks_set_on_data_chunk_recv_callback(callbacks,
-            recv_callback);
+            on_data_chunk_recv_callback);
 
     nghttp2_session_callbacks_set_on_stream_close_callback(callbacks,
-            stream_close_callback);
+            on_stream_close_callback);
 
     nghttp2_session_callbacks_set_on_header_callback(callbacks,
-            on_hdr_callback);
+            on_header_callback);
 
     nghttp2_session_callbacks_set_on_begin_headers_callback(callbacks,
             on_begin_headers_callback);
@@ -378,8 +359,17 @@ static int register_session_callbacks(http2_session_data *session_data,
     nghttp2_session_callbacks_set_data_source_read_length_callback(callbacks,
             data_source_read_length_callback);
 
-    nghttp2_session_client_new(&session_data->session, callbacks, session_data);
+    return 0;
+}
 
+/**
+ *  *session_data is our handle
+ */
+static int register_session_callbacks(http2_session_data *session_data, nghttp2_session_callbacks *callbacks, void *user_data)
+{
+    int ret = 0;
+
+    ret = nghttp2_session_client_new(&session_data->session, callbacks, user_data);
     nghttp2_session_callbacks_del(callbacks);
 
     return ret;
@@ -418,7 +408,7 @@ static esp_err_t submit_request(http2_session_data *session_data,
         const nghttp2_nv *user_hdrs, size_t user_hdr_len,
         const char* method,
         const nghttp2_data_provider *data_prd,
-        const void* stream_user_data)
+        void* stream_user_data)
 {
 
     int32_t stream_id;
@@ -701,7 +691,7 @@ esp_err_t nghttp_new_connection(http2_session_data *http2_session, url_t *url)
 /*
  * Read from the connection
  */
-esp_err_t read_write_loop(http2_session_data* http2_session)
+esp_err_t read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
 {
     esp_err_t ret;
     uint8_t buf[512];
@@ -709,13 +699,13 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
 
     do {
         /* send pending outgoing frames */
-        ret = nghttp2_session_send(http2_session->session);
+        ret = nghttp2_session_send(session);
         if (ret != 0) {
             ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
             break;
         }
 
-        ret = mbedtls_ssl_read( http2_session->ssl_session->ssl_context, buf, sizeof(buf) );
+        ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf) );
         // ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
@@ -743,7 +733,7 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
         // ESP_LOGI(TAG, "%d bytes read", ret);
 
         // copy received bytes to nghttp2
-        ret = nghttp2_session_mem_recv(http2_session->session,
+        ret = nghttp2_session_mem_recv(session,
                 buf, ret);
 
         if (ret < 0) {
@@ -756,35 +746,34 @@ esp_err_t read_write_loop(http2_session_data* http2_session)
     return ret;
 }
 
-/*
-static void event_loop_task(void *pvParameters)
+void event_loop_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "starting network loop");
     http2_session_data* http2_session = pvParameters;
-    int ret = read_write_loop(http2_session);
+    int ret = read_write_loop(http2_session->session, http2_session->ssl_session->ssl_context);
+    ESP_LOGI(TAG, "event loop finished with %d", ret);
+
+    free_http2_session_data(http2_session);
 
     ESP_LOGI(TAG, "event_loop_task stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
     vTaskDelete(NULL);
 }
-*/
 
 
 /* Make a new request. */
-esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
-                    void *stream_user_data,
+int nghttp_new_session(http2_session_data **http2_session_ptr,
 					char *uri, char *method,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
-			        nghttp2_on_header_callback hdr_callback,
-					nghttp2_on_data_chunk_recv_callback recv_callback,
-			        nghttp2_on_stream_close_callback stream_close_callback)
+			        nghttp2_session_callbacks *callbacks,
+			        void *stream_user_data,
+			        void *session_user_data)
 {
-    esp_err_t ret;
+    int ret;
     http2_session_data *http2_session;
     url_t *url;
     int32_t stream_id;
-
 
     /* allocate http2 session */
     if((ret = alloc_http2_session_data(http2_session_ptr)) != 0) {
@@ -806,7 +795,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     }
 
     // register callbacks
-    if((ret = register_session_callbacks(http2_session, hdr_callback, recv_callback, stream_close_callback)) != 0) {
+    if((ret = register_session_callbacks(http2_session, callbacks, http2_session)) != 0) {
         url_free(url);
         free_http2_session_data(http2_session);
         return ret;
@@ -815,7 +804,7 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
     // send request
     ESP_LOGI(TAG, "Writing HTTP request...");
 
-    // client settings
+    // send client settings
     send_client_connection_header(http2_session->session);
 
     if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
@@ -825,85 +814,38 @@ esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
         return stream_id;
     }
 
-    nghttp2_session_set_stream_user_data(http2_session, stream_id, stream_user_data);
+    url_free(url);
 
-    /* start sending data
-    if ((ret = nghttp2_session_send(http2_session->session)) != 0 && ret != NGHTTP2_ERR_DEFERRED) {
-    	ESP_LOGI(TAG, "session_send() returned %d",ret);
-    	url_free(url);
-        free_http2_session_data(http2_session);
-        return ret;
+    nghttp2_session_set_stream_user_data(http2_session->session, stream_id, stream_user_data);
+
+    return ret;
+}
+
+
+int32_t nghttp_new_stream(http2_session_data *http2_session,
+        void *stream_user_data,
+        char *uri, char *method,
+        nghttp2_nv *headers,  size_t hdr_len,
+        nghttp2_data_provider *data_provider_struct)
+{
+    url_t *url;
+    int32_t stream_id;
+
+    /* parse url */
+    if((url = url_create(uri)) == NULL) {
+        ESP_LOGI(TAG, "failed to create url %s", uri);
+        return -1;
     }
-    */
 
+    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
+        ESP_LOGI(TAG, "failed to submit request");
+        url_free(url);
+        // free_http2_session_data(http2_session);
+        return stream_id;
+    }
 
-    /* Read HTTP response */
-    ret = read_write_loop(http2_session);
-    ESP_LOGI(TAG, "done reading");
+    url_free(url);
 
-    /* start read write loop */
-    // xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task", 8192, http2_session, 1, NULL, 0);
-
-    free_http2_session_data(http2_session);
-
-    return ret;
-}
-
-
-/* Make a one-off GET request. */
-esp_err_t nghttp_get(char *uri)
-{
-    esp_err_t ret;
-    http2_session_data *http2_session;
-
-    ret = nghttp_new_request(
-            &http2_session,
-            NULL,
-            uri, "GET",
-            NULL, 0,
-            NULL,
-            on_header_callback,
-            on_data_chunk_recv_callback,
-            on_stream_close_callback);
-
-    return ret;
-}
-
-
-/* Make a one-off POST request. */
-esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct)
-{
-    esp_err_t ret;
-    http2_session_data *http2_session;
-
-    ret = nghttp_new_request(
-            &http2_session,
-            NULL,
-            uri, "POST",
-            NULL, 0,
-            data_provider_struct,
-            on_header_callback,
-            on_data_chunk_recv_callback,
-            on_stream_close_callback);
-
-    return ret;
-}
-
-esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct)
-{
-    esp_err_t ret;
-    http2_session_data *http2_session;
-
-    ret = nghttp_new_request(
-            &http2_session,
-            NULL,
-            uri, "PUT",
-            NULL, 0,
-            data_provider_struct,
-            on_header_callback,
-            on_data_chunk_recv_callback,
-            on_stream_close_callback);
-
-    return ret;
+    return 0;
 }
 

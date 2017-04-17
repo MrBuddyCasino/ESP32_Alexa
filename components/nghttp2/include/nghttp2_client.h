@@ -46,20 +46,31 @@ typedef struct
 
 } http2_session_data;
 
+void free_http2_session_data(http2_session_data *session_data);
 
-esp_err_t nghttp_new_request(http2_session_data **http2_session_ptr,
-                    void *user_data,
+/**
+ * @brief create a new session
+ */
+int nghttp_new_session(http2_session_data **http2_session_ptr,
                     char *uri, char *method,
                     nghttp2_nv *headers,  size_t hdr_len,
                     nghttp2_data_provider *data_provider_struct,
-                    nghttp2_on_header_callback hdr_callback,
-                    nghttp2_on_data_chunk_recv_callback recv_callback,
-                    nghttp2_on_stream_close_callback stream_close_callback);
+                    nghttp2_session_callbacks *callbacks,
+                    void *stream_user_data,
+                    void *session_user_data);
+
+/**
+ * @brief create a new stream for an existing session
+ */
+int nghttp_new_stream(http2_session_data *http2_session,
+        void *stream_user_data,
+        char *uri, char *method,
+        nghttp2_nv *headers,  size_t hdr_len,
+        nghttp2_data_provider *data_provider_struct);
 
 
-esp_err_t nghttp_get(char *uri);
-esp_err_t nghttp_post(char *uri, nghttp2_data_provider *data_provider_struct);
-esp_err_t nghttp_put(char *uri, nghttp2_data_provider *data_provider_struct);
+void event_loop_task(void *pvParameters);
 
+int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr);
 
 #endif /* COMPONENTS_NGHTTP_NGHTTP_CLIENT_H_ */
