@@ -196,9 +196,9 @@ void app_main()
 
     ui_queue_event(UI_CONNECTED);
 
-    //xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
 
-    start_web_radio();
+    // start_web_radio();
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 

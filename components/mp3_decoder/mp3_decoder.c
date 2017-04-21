@@ -150,8 +150,6 @@ void mp3_decoder_task(void *pvParameters)
             }
             mad_synth_frame(synth, frame);
         }
-        // ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
-        // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
     }
 
     free(synth);
@@ -162,6 +160,10 @@ void mp3_decoder_task(void *pvParameters)
     spiRamFifoReset();
 
     printf("MAD: Decoder stopped.\n");
+
+    // ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+
     vTaskDelete(NULL);
 }
 

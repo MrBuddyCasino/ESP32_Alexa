@@ -5,30 +5,22 @@
  *      Author: michaelboeckling
  */
 
-#ifndef COMPONENTS_ALEXA_INCLUDE_ALEXA_H_
-#define COMPONENTS_ALEXA_INCLUDE_ALEXA_H_
+#ifndef _INCLUDE_ALEXA_H_
+#define _INCLUDE_ALEXA_H_
 
-typedef enum {
-    CONN_CONNECTING, CONN_UNAUTHORIZED, CONN_OPEN, CONN_CLOSED
-} alexa_stream_status_t;
+/**
+ * @struct
+ *
+ * The primary structure to hold the resources needed for an Alexa
+ * session.  The details of this structure are intentionally hidden
+ * from the public API.
+ */
+typedef struct alexa_session_struct_t alexa_session_t;
 
-typedef struct
-{
-    int32_t stream_id;
-    alexa_stream_status_t status;
-} alexa_stream_t;
+void set_auth_token(alexa_session_t *alexa_session, char* access_token);
 
-typedef struct
-{
-    player_t *player_config;
-    char *auth_token;
-    EventGroupHandle_t event_group;
-    alexa_stream_t *downchannel;
-} alexa_session_t;
-
+void auth_token_refresh(alexa_session_t *alexa_session);
 
 int alexa_init();
 
-alexa_session_t *get_alexa_session();
-
-#endif /* COMPONENTS_ALEXA_INCLUDE_ALEXA_H_ */
+#endif /* _INCLUDE_ALEXA_H_ */

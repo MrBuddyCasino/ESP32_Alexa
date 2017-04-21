@@ -21,6 +21,8 @@ typedef struct
 {
     mbedtls_ssl_context *ssl_context;
     mbedtls_net_context *server_fd;
+    /* only referenced here to simply cleanup */
+    mbedtls_ssl_config *conf;
 } ssl_session_data;
 
 
@@ -30,7 +32,7 @@ typedef struct
 typedef struct
 {
     /* nghttp2_session is hidden */
-    nghttp2_session *session;
+    nghttp2_session *nghttp2_session;
 
     /* underlying connection */
     ssl_session_data *ssl_session;
@@ -38,20 +40,17 @@ typedef struct
     /* current number of outgoing streams */
     uint8_t num_outgoing_streams;
 
-    /*
-     * user data that is associated with a stream
-     * retrieve with:
-     * void * nghttp2_session_get_stream_user_data(nghttp2_session *session, int32_t stream_id)
-     */
+    /* your place */
+    void *session_user_data;
 
-} http2_session_data;
+} http2_session_data_t;
 
-void free_http2_session_data(http2_session_data *session_data);
+void free_http2_session_data(http2_session_data_t *session_data, int ret);
 
 /**
  * @brief create a new session
  */
-int nghttp_new_session(http2_session_data **http2_session_ptr,
+int nghttp_new_session(http2_session_data_t **http2_session_ptr,
                     char *uri, char *method,
                     nghttp2_nv *headers,  size_t hdr_len,
                     nghttp2_data_provider *data_provider_struct,
@@ -62,7 +61,7 @@ int nghttp_new_session(http2_session_data **http2_session_ptr,
 /**
  * @brief create a new stream for an existing session
  */
-int nghttp_new_stream(http2_session_data *http2_session,
+int nghttp_new_stream(http2_session_data_t *http2_session,
         void *stream_user_data,
         char *uri, char *method,
         nghttp2_nv *headers,  size_t hdr_len,
@@ -70,6 +69,7 @@ int nghttp_new_stream(http2_session_data *http2_session,
 
 
 void event_loop_task(void *pvParameters);
+int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context);
 
 int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr);
 

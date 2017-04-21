@@ -69,6 +69,7 @@ typedef time_t mbedtls_time_t;
 #include "lwip/netdb.h"
 #include "lwip/dns.h"
 
+#include "esp_system.h"
 #include "esp_err.h"
 #include "esp_log.h"
 
@@ -131,30 +132,10 @@ static void mbedtls_debug(void *ctx, int level, const char *file, int line,
 
 
 
-
-/* cleanup mbedtls */
-void destroy_mbedtls_context(mbedtls_ssl_context *ssl,
-        mbedtls_net_context *server_fd, int ret)
-{
-    mbedtls_ssl_session_reset(ssl);
-    mbedtls_net_free(server_fd);
-
-    if (ret != 0) {
-        char* buf = calloc(100, sizeof(char));
-        mbedtls_strerror(ret, buf, 100);
-        ESP_LOGE(TAG, "Last error was: -0x%x - %s", -ret, buf);
-        free(buf);
-    }
-}
-
-
-
-
-
 /* Initializes |session_data| */
-static esp_err_t alloc_http2_session_data(http2_session_data **session_data_ptr)
+static esp_err_t alloc_http2_session_data(http2_session_data_t **session_data_ptr)
 {
-    *session_data_ptr = calloc(1, sizeof(http2_session_data) );
+    *session_data_ptr = calloc(1, sizeof(http2_session_data_t));
     if((*session_data_ptr) == NULL) {
         ESP_LOGE(TAG, "http2_session_data malloc failed");
         return ESP_ERR_NO_MEM;
@@ -163,19 +144,50 @@ static esp_err_t alloc_http2_session_data(http2_session_data **session_data_ptr)
     return ESP_OK;
 }
 
-
-void free_http2_session_data(http2_session_data *session_data)
+esp_err_t free_ssl_session_data(ssl_session_data *session, int ret)
 {
+    if(session == NULL)
+        return ESP_ERR_INVALID_ARG;
 
-    if (session_data->ssl_session->ssl_context) {
-        // shutdown SSL
-        destroy_mbedtls_context(session_data->ssl_session->ssl_context,
-                session_data->ssl_session->server_fd, 0);
+    ESP_LOGI(TAG, "freeing ssl_session_data");
+
+    mbedtls_ssl_free(session->ssl_context);
+    mbedtls_free(session->ssl_context);
+
+    mbedtls_net_free(session->server_fd);
+    mbedtls_free(session->server_fd);
+
+    free(session);
+
+    if (ret != 0) {
+        char* buf = calloc(100, sizeof(char));
+        if(buf == NULL) {
+            return ESP_ERR_NO_MEM;
+        }
+        mbedtls_strerror(ret, buf, 100);
+        ESP_LOGE(TAG, "Last error was: -0x%x - %s", -ret, buf);
+        free(buf);
     }
 
-    nghttp2_session_del(session_data->session);
+    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+    return ESP_OK;
+}
+
+
+void free_http2_session_data(http2_session_data_t *session_data, int ret)
+{
+
+    if (session_data->ssl_session) {
+        // shutdown SSL
+        free_ssl_session_data(session_data->ssl_session, ret);
+    }
+
+    ESP_LOGI(TAG, "freeing http2_session_data");
+    nghttp2_session_del(session_data->nghttp2_session);
 
     free(session_data);
+
+    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 }
 
 static void print_header(const uint8_t *name, size_t namelen,
@@ -199,21 +211,19 @@ static void print_headers(nghttp2_nv *nva, size_t nvlen)
 
 /* nghttp2_send_callback. Here we transmit the |data|, |length| bytes,
  to the network. */
-static ssize_t send_callback(nghttp2_session *session, const uint8_t *data,
+static ssize_t on_send_callback(nghttp2_session *session, const uint8_t *data,
         size_t length, int flags, void *user_data)
 {
+
     ssize_t ret;
-    http2_session_data *session_data = (http2_session_data *) user_data;
+    http2_session_data_t *session_data = (http2_session_data_t *) user_data;
 
-    mbedtls_ssl_context *ssl = session_data->ssl_session->ssl_context;
-    mbedtls_net_context *server_fd = session_data->ssl_session->server_fd;
-
-    while((ret = mbedtls_ssl_write(ssl, data, length)) <= 0)
+    // ESP_LOGE(TAG, "entered on_send_callback, writing %d bytes", length);
+    while((ret = mbedtls_ssl_write(session_data->ssl_session->ssl_context, data, length)) <= 0)
     {
         if(ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE)
         {
             ESP_LOGE(TAG, "mbedtls_ssl_write returned -0x%x", -ret);
-            destroy_mbedtls_context(ssl, server_fd, ret);
             return ret;
         }
     }
@@ -314,7 +324,7 @@ static int min(int a, int b) {
 /* fixes assertion error in:
  * assert(nghttp2_buf_avail(buf) >= datamax);
  */
-ssize_t data_source_read_length_callback (
+ssize_t on_data_source_read_length_callback (
     nghttp2_session *session, uint8_t frame_type, int32_t stream_id,
     int32_t session_remote_window_size, int32_t stream_remote_window_size,
     uint32_t remote_max_frame_size, void *user_data)
@@ -330,15 +340,15 @@ ssize_t data_source_read_length_callback (
 
 int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr)
 {
-    nghttp2_session_callbacks *callbacks = (*callbacks_ptr);
-
-    if((nghttp2_session_callbacks_new(&callbacks)) == NGHTTP2_ERR_NOMEM) {
+    if((nghttp2_session_callbacks_new(callbacks_ptr)) == NGHTTP2_ERR_NOMEM) {
         ESP_LOGE(TAG, "failed to allocate nghttp2_session_callbacks");
         return NGHTTP2_ERR_NOMEM;
     }
 
+    nghttp2_session_callbacks *callbacks = (*callbacks_ptr);
+
     // Here we transmit the data to the network.
-    nghttp2_session_callbacks_set_send_callback(callbacks, send_callback);
+    nghttp2_session_callbacks_set_send_callback(callbacks, on_send_callback);
 
     nghttp2_session_callbacks_set_on_frame_recv_callback(callbacks,
             on_frame_recv_callback);
@@ -357,7 +367,7 @@ int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr)
 
     // optional: send buffer size
     nghttp2_session_callbacks_set_data_source_read_length_callback(callbacks,
-            data_source_read_length_callback);
+            on_data_source_read_length_callback);
 
     return 0;
 }
@@ -365,11 +375,11 @@ int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr)
 /**
  *  *session_data is our handle
  */
-static int register_session_callbacks(http2_session_data *session_data, nghttp2_session_callbacks *callbacks, void *user_data)
+static int register_session_callbacks(nghttp2_session **session_ptr, nghttp2_session_callbacks *callbacks, void *user_data)
 {
     int ret = 0;
 
-    ret = nghttp2_session_client_new(&session_data->session, callbacks, user_data);
+    ret = nghttp2_session_client_new(session_ptr, callbacks, user_data);
     nghttp2_session_callbacks_del(callbacks);
 
     return ret;
@@ -403,7 +413,7 @@ static esp_err_t send_client_connection_header(nghttp2_session *session)
   }
 
 /* Send HTTP request to the remote peer */
-static esp_err_t submit_request(http2_session_data *session_data,
+static esp_err_t submit_request(http2_session_data_t *session_data,
         const url_t *url,
         const nghttp2_nv *user_hdrs, size_t user_hdr_len,
         const char* method,
@@ -437,7 +447,7 @@ static esp_err_t submit_request(http2_session_data *session_data,
 
     /* submit request */
 
-    stream_id = nghttp2_submit_request(session_data->session, NULL, hdrs,
+    stream_id = nghttp2_submit_request(session_data->nghttp2_session, NULL, hdrs,
             ARRLEN(hdrs), data_prd, stream_user_data);
 
     if (stream_id < 0) {
@@ -472,26 +482,6 @@ esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
     return ESP_OK;
 }
 
-esp_err_t free_ssl_session_data(ssl_session_data *session)
-{
-    if(session == NULL)
-        return ESP_ERR_INVALID_ARG;
-
-    if(session->ssl_context != NULL)
-        free(session->ssl_context);
-
-    /* don't free, conf is shared between contexts
-    if(session->ssl_context->conf != NULL)
-        free(session->ssl_context->conf);
-    */
-
-    if(session->server_fd != NULL)
-        free(session->server_fd);
-
-    free(session);
-
-    return ESP_OK;
-}
 
 /*
  * Make an encrypted TLS connection.
@@ -502,7 +492,6 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
 
     if((ret = alloc_ssl_session_data(ssl_session_ptr)) != ESP_OK)
     {
-        free_ssl_session_data((*ssl_session_ptr));
         ESP_LOGE(TAG, "failed to allocate ssl_session: %d", ret);
         return ret;
     }
@@ -513,6 +502,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     mbedtls_ssl_context *ssl_context = ssl_session->ssl_context;
     mbedtls_x509_crt cacert;
     mbedtls_ssl_config *conf = mbedtls_calloc(1, sizeof(mbedtls_ssl_config));
+    ssl_session->conf = conf;
     mbedtls_net_context *server_fd = ssl_session->server_fd;
 
     // configure ALPN
@@ -538,16 +528,15 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     }
 
     // alpn
-    if( ( ret = mbedtls_ssl_conf_alpn_protocols( conf, alpn_list ) ) != 0 )
+    if((ret = mbedtls_ssl_conf_alpn_protocols(conf, alpn_list )) != 0 )
      {
          mbedtls_printf( " failed\n  ! mbedtls_ssl_conf_alpn_protocols returned %d\n\n", ret );
-         destroy_mbedtls_context(ssl_context, server_fd, ret);
          return ESP_FAIL;
      }
 
     /* restrict cypher suites */
     int cypher[3];
-    memset( (void * ) cypher, 0, sizeof( cypher ) );
+    memset((void *) cypher, 0, sizeof(cypher));
     cypher[0] = MBEDTLS_TLS_DHE_RSA_WITH_AES_128_GCM_SHA256;
     cypher[1] = MBEDTLS_TLS_DHE_RSA_WITH_AES_256_GCM_SHA384;
     cypher[2] = (int) NULL;
@@ -570,7 +559,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     /* Hostname set here should match CN in server certificate */
     if ((ret = mbedtls_ssl_set_hostname(ssl_context, host)) != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_set_hostname returned -0x%x", -ret);
-        return ESP_FAIL;
+        return ret;
     }
 
     ESP_LOGI(TAG, "Setting up the SSL/TLS structure...");
@@ -581,8 +570,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
         MBEDTLS_SSL_PRESET_DEFAULT);
     if (ret != ESP_OK) {
         ESP_LOGE(TAG, "mbedtls_ssl_config_defaults returned %d", ret);
-        destroy_mbedtls_context(ssl_context, server_fd, ret);
-        return ESP_FAIL;
+        return ret;
     }
 
     /* MBEDTLS_SSL_VERIFY_OPTIONAL is bad for security, in this example it will print
@@ -601,8 +589,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     ret = mbedtls_ssl_setup(ssl_context, conf);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ssl_setup returned -0x%x\n\n", -ret);
-        destroy_mbedtls_context(ssl_context, server_fd, ret);
-        return ESP_FAIL;
+        return ret;
     }
 
     /* wifi must be up from this point on */
@@ -616,11 +603,9 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     itoa(port, (char*) &port_str, 10);
 
     ret = mbedtls_net_connect(server_fd, host, port_str, MBEDTLS_NET_PROTO_TCP);
-
     if (ret != 0)
     {
         ESP_LOGE(TAG, "mbedtls_net_connect returned -%x", -ret);
-        destroy_mbedtls_context(ssl_context, server_fd, ret);
         return ESP_FAIL;
     }
 
@@ -635,8 +620,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
         if (ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE)
         {
             ESP_LOGE(TAG, "mbedtls_ssl_handshake returned -0x%x", -ret);
-            destroy_mbedtls_context(ssl_context, server_fd, ret);
-            return ESP_FAIL;
+            return ret;
         }
     }
 
@@ -668,7 +652,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
 }
 
 /* establish SSL connection and create a new session */
-esp_err_t nghttp_new_connection(http2_session_data *http2_session, url_t *url)
+esp_err_t nghttp_new_connection(http2_session_data_t *http2_session, url_t *url)
 {
     int ret;
     ssl_session_data *ssl_session;
@@ -676,12 +660,11 @@ esp_err_t nghttp_new_connection(http2_session_data *http2_session, url_t *url)
     /* connect using tls */
     ret = open_ssl_connection(&ssl_session, url->host, url->port);
     if (ret != ESP_OK) {
-        free_ssl_session_data(ssl_session);
         ESP_LOGE(TAG, "TLS connection failed");
+        free_ssl_session_data(ssl_session, ret);
         return ret;
     }
     http2_session->ssl_session = ssl_session;
-
 
     /* transport layer ready */
     return 0;
@@ -691,28 +674,42 @@ esp_err_t nghttp_new_connection(http2_session_data *http2_session, url_t *url)
 /*
  * Read from the connection
  */
-esp_err_t read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
+int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
 {
-    esp_err_t ret;
+    esp_err_t ret = 0;
     uint8_t buf[512];
     bzero(buf, sizeof(buf));
 
     do {
-        /* send pending outgoing frames */
-        ret = nghttp2_session_send(session);
-        if (ret != 0) {
-            ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
+
+        if(!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)) {
             break;
         }
 
+        /* send pending outgoing frames */
+        if(nghttp2_session_want_write(session)) {
+            ret = nghttp2_session_send(session);
+            ESP_LOGI(TAG, "nghttp2_session_send ret = %d", ret);
+            if (ret != 0) {
+                ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
+                break;
+            }
+        }
+
+        // avoid blocking read
+        if(!nghttp2_session_want_read(session)) {
+            continue;
+        }
+
         ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf) );
-        // ESP_LOGI(TAG, "mbedtls_ssl_read() returned %d", ret);
+        ESP_LOGI(TAG, "mbedtls_ssl_read ret = %d", ret);
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             // continue;
         }
 
         if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+            ESP_LOGI(TAG, "The peer notified us that the connection is going to be closed.");
             ret = 0;
             break;
         }
@@ -741,19 +738,22 @@ esp_err_t read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_con
             break;
         }
 
+        // taskYIELD();
+
     } while (ret >= 0);
 
     return ret;
 }
 
+/* task to read/write to the network */
 void event_loop_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "starting network loop");
-    http2_session_data* http2_session = pvParameters;
-    int ret = read_write_loop(http2_session->session, http2_session->ssl_session->ssl_context);
+    http2_session_data_t* http2_session = pvParameters;
+    int ret = read_write_loop(http2_session->nghttp2_session, http2_session->ssl_session->ssl_context);
     ESP_LOGI(TAG, "event loop finished with %d", ret);
 
-    free_http2_session_data(http2_session);
+    free_http2_session_data(http2_session, ret);
 
     ESP_LOGI(TAG, "event_loop_task stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
@@ -762,7 +762,7 @@ void event_loop_task(void *pvParameters)
 
 
 /* Make a new request. */
-int nghttp_new_session(http2_session_data **http2_session_ptr,
+int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 					char *uri, char *method,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
@@ -771,33 +771,34 @@ int nghttp_new_session(http2_session_data **http2_session_ptr,
 			        void *session_user_data)
 {
     int ret;
-    http2_session_data *http2_session;
+    http2_session_data_t *session_data;
     url_t *url;
     int32_t stream_id;
+
+    ESP_LOGI(TAG, "new nghttp session, uri: %s", uri);
 
     /* allocate http2 session */
     if((ret = alloc_http2_session_data(http2_session_ptr)) != 0) {
         return ret;
     }
-    http2_session = (*http2_session_ptr);
+    session_data = (*http2_session_ptr);
+    session_data->session_user_data = session_user_data;
+
 
     /* parse url */
     if((url = url_create(uri)) == NULL) {
-        free_http2_session_data(http2_session);
         return -1;
     }
 
     /* make ssl connection */
-    if((ret = nghttp_new_connection(http2_session, url) != 0)) {
+    if((ret = nghttp_new_connection(session_data, url) != 0)) {
         url_free(url);
-        free_http2_session_data(http2_session);
         return ret;
     }
 
     // register callbacks
-    if((ret = register_session_callbacks(http2_session, callbacks, http2_session)) != 0) {
+    if((ret = register_session_callbacks(&session_data->nghttp2_session, callbacks, session_data)) != 0) {
         url_free(url);
-        free_http2_session_data(http2_session);
         return ret;
     }
 
@@ -805,24 +806,23 @@ int nghttp_new_session(http2_session_data **http2_session_ptr,
     ESP_LOGI(TAG, "Writing HTTP request...");
 
     // send client settings
-    send_client_connection_header(http2_session->session);
+    send_client_connection_header(session_data->nghttp2_session);
 
-    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
+    if((stream_id = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
     	url_free(url);
-        free_http2_session_data(http2_session);
         return stream_id;
     }
 
     url_free(url);
 
-    nghttp2_session_set_stream_user_data(http2_session->session, stream_id, stream_user_data);
+    // nghttp2_session_set_stream_user_data(http2_session->session, stream_id, stream_user_data);
 
     return ret;
 }
 
 
-int32_t nghttp_new_stream(http2_session_data *http2_session,
+int32_t nghttp_new_stream(http2_session_data_t *http2_session,
         void *stream_user_data,
         char *uri, char *method,
         nghttp2_nv *headers,  size_t hdr_len,
@@ -830,6 +830,8 @@ int32_t nghttp_new_stream(http2_session_data *http2_session,
 {
     url_t *url;
     int32_t stream_id;
+
+    ESP_LOGI(TAG, "new nghttp stream, uri: %s", uri);
 
     /* parse url */
     if((url = url_create(uri)) == NULL) {
@@ -840,7 +842,6 @@ int32_t nghttp_new_stream(http2_session_data *http2_session,
     if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
         ESP_LOGI(TAG, "failed to submit request");
         url_free(url);
-        // free_http2_session_data(http2_session);
         return stream_id;
     }
 
