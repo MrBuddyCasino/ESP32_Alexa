@@ -120,24 +120,53 @@ static void set_wifi_credentials()
     ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
     esp_wifi_disconnect();
     esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    ESP_LOGI(TAG, "connecting\n");
+    ESP_LOGI(TAG, "connecting");
     esp_wifi_connect();
 }
 
-static void start_web_radio()
+static void init_hardware()
 {
-    // init web radio
-    web_radio_t *radio_config = calloc(1, sizeof(web_radio_t));
-    radio_config->url = PLAY_URL;
+    nvs_flash_init();
 
-    // init player config
-    radio_config->player_config = calloc(1, sizeof(player_t));
-    radio_config->player_config->state = STOPPED;
-    radio_config->player_config->buffer_pref = SAFE;
+    // init UI
+    ui_init(GPIO_NUM_32);
 
-    // init renderer
-    radio_config->player_config->renderer_config = calloc(1, sizeof(renderer_config_t));
-    renderer_config_t *renderer_config = radio_config->player_config->renderer_config;
+    //Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
+    //doesn't, warn user.
+    if (!spiRamFifoInit()) {
+        printf("\n\nSPI RAM chip fail!\n");
+        while(1);
+    }
+
+    ESP_LOGI(TAG, "hardware initialized");
+}
+
+static void start_wifi()
+{
+    ESP_LOGI(TAG, "starting network");
+
+    /* FreeRTOS event group to signal when we are connected & ready to make a request */
+    EventGroupHandle_t wifi_event_group = xEventGroupCreate();
+
+    /* init wifi */
+    ui_queue_event(UI_CONNECTING);
+    initialise_wifi(wifi_event_group);
+    set_wifi_credentials();
+
+    /* start mDNS */
+    // xTaskCreatePinnedToCore(&mdns_task, "mdns_task", 2048, wifi_event_group, 5, NULL, 0);
+
+    /* Wait for the callback to set the CONNECTED_BIT in the event group. */
+    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
+                        false, true, portMAX_DELAY);
+
+    ui_queue_event(UI_CONNECTED);
+}
+
+static renderer_config_t *create_renderer_config()
+{
+    renderer_config_t *renderer_config = calloc(1, sizeof(renderer_config_t));
+
     renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
     renderer_config->i2s_num = I2S_NUM_0;
     renderer_config->sample_rate = 44100;
@@ -156,6 +185,24 @@ static void start_web_radio()
 #endif
     }
 
+    return renderer_config;
+}
+
+static void start_web_radio()
+{
+    // init web radio
+    web_radio_t *radio_config = calloc(1, sizeof(web_radio_t));
+    radio_config->url = PLAY_URL;
+
+    // init player config
+    radio_config->player_config = calloc(1, sizeof(player_t));
+    radio_config->player_config->state = STOPPED;
+    radio_config->player_config->buffer_pref = FAST;
+    radio_config->player_config->media_stream = calloc(1, sizeof(media_stream_t));
+
+    // init renderer
+    radio_config->player_config->renderer_config = create_renderer_config();
+
     // start radio
     web_radio_init(radio_config);
     web_radio_start(radio_config);
@@ -166,41 +213,14 @@ static void start_web_radio()
  */
 void app_main()
 {
-    printf("starting app_main()\n");
+ESP_LOGI(TAG, "starting app_main()");
+    init_hardware();
+    start_wifi();
 
-    /* FreeRTOS event group to signal when we are connected & ready to make a request */
-    EventGroupHandle_t wifi_event_group = xEventGroupCreate();
-
-    nvs_flash_init();
-
-    // init UI
-    ui_init(GPIO_NUM_32);
-    ui_queue_event(UI_CONNECTING);
-
-    initialise_wifi(wifi_event_group);
-
-    // quick hack
-    set_wifi_credentials();
-
-    //Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
-    //doesn't, warn user.
-    if (!spiRamFifoInit()) {
-        printf("\n\nSPI RAM chip fail!\n");
-        while(1);
-    }
-    printf("\n\nHardware initialized. Waiting for network.\n");
-
-    /* Wait for the callback to set the CONNECTED_BIT in the event group. */
-    xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
-                        false, true, portMAX_DELAY);
-
-    ui_queue_event(UI_CONNECTED);
-
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
 
     // start_web_radio();
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
-
     // ESP_LOGI(TAG, "app_main stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 }

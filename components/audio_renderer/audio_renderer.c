@@ -5,7 +5,7 @@
  *      Author: michaelboeckling
  *
  *  Rev. 17.4.2017/Jorgen Kragh Jakobsen
- *      Added 32 bit entry for i2s output and setup i2c call for Merus Audio power audio amp. 
+ *      Added 32 bit entry for i2s output and setup i2c call for Merus Audio power audio amp.
  */
 
 #include <stdbool.h>
@@ -166,19 +166,19 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
             break;
 
         case I2S_BITS_PER_SAMPLE_32BIT:
-            for (int i=0; i< num_samples; i++) { 
-			  
+            for (int i=0; i< num_samples; i++) {
+
 			  if (state == RENDER_STOPPED)
 			     break;
-			  
+
 			  char high0 = sample_buff_ch0[i]>>8;
-			  char mid0  = sample_buff_ch0[i] & 0xff; 
+			  char mid0  = sample_buff_ch0[i] & 0xff;
 			  char high1 = sample_buff_ch1[i]>>8;
-			  char mid1  = sample_buff_ch1[i] & 0xff; 
+			  char mid1  = sample_buff_ch1[i] & 0xff;
               const char samp32[8] = {0,0,mid0,high0,0,0,mid1,high1};
-			  
+
 			  int bytes_pushed = i2s_push_sample(curr_config->i2s_num,  (char *)&samp32, delay);
-              
+
 			  // DMA buffer full - retry
               if(bytes_pushed == 0) {
                     i--;
@@ -213,6 +213,7 @@ void audio_renderer_init(renderer_config_t *config)
     curr_config = config;
     state = RENDER_STOPPED;
 
+    ESP_LOGI(TAG, "init I2S mode %d, port %d, %d bit, %d Hz", config->output_mode, config->i2s_num, config->bit_depth, config->sample_rate);
     switch (config->output_mode) {
         case I2S:
             init_i2s(config);
@@ -220,7 +221,7 @@ void audio_renderer_init(renderer_config_t *config)
 
         case I2S_MERUS:
             init_i2s(config);
-            init_ma120(0x50);           // setup ma120x0p and initial volume 
+            init_ma120(0x50); // setup ma120x0p and initial volume
             break;
 
         case DAC_BUILT_IN:

@@ -140,6 +140,9 @@ static int create_alexa_session(alexa_session_t **alexa_session_ptr)
     alexa_session->player_config = calloc(1, sizeof(player_t));
     alexa_session->player_config->state = IDLE;
     alexa_session->player_config->buffer_pref = FAST;
+    alexa_session->player_config->media_stream = calloc(1, sizeof(media_stream_t));
+    alexa_session->player_config->media_stream->eof = true;
+    alexa_session->player_config->media_stream->content_type = MIME_UNKNOWN;
 
     // init rest
     alexa_session->downchannel = calloc(1, sizeof(alexa_stream_t));
@@ -223,6 +226,8 @@ int on_header_value(multipart_parser *parser, const char *at, size_t length)
     if(strncmp("application/octet-stream", at, length) == 0) {
         printf("audio part detected\n");
         alexa_response->current_part = AUDIO_DATA;
+        alexa_session->player_config->media_stream->eof = false;
+        alexa_session->player_config->media_stream->content_type = AUDIO_MPEG;
 
         printf("starting player\n");
         audio_player_init(alexa_session->player_config);
@@ -269,8 +274,9 @@ int on_part_data_end(multipart_parser *parser)
     printf("on_part_data_end\n");
 
     if(alexa_response->current_part == AUDIO_DATA) {
-        printf("stopping player\n");
+        // printf("stopping player\n");
         alexa_session->player_config->state = FINISHED;
+        alexa_session->player_config->media_stream->eof = true;
         // audio_player_stop(alexa_response->player_config);
     }
 

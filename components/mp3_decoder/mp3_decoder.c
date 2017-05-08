@@ -40,11 +40,11 @@ static long buf_underrun_cnt;
 
 
 static enum mad_flow input(struct mad_stream *stream, player_t *player) {
-    int readable_bytes, fifo_fill;
-    int rem;
+    int bytes_to_read, fifo_fill;
+    int bytes_left;
     //Shift remaining contents of buf to the front
-    rem = stream->bufend - stream->next_frame;
-    memmove(read_buf, stream->next_frame, rem);
+    bytes_left = stream->bufend - stream->next_frame;
+    memmove(read_buf, stream->next_frame, bytes_left);
 
     //while (rem < sizeof(read_buf)) {
     while (1) {
@@ -53,16 +53,16 @@ static enum mad_flow input(struct mad_stream *stream, player_t *player) {
         if(player->state == STOPPED)
             return MAD_FLOW_STOP;
 
-        readable_bytes = (sizeof(read_buf) - rem);    // Calculate amount of bytes we need to fill buffer.
+        bytes_to_read = (sizeof(read_buf) - bytes_left);    // Calculate amount of bytes we need to fill buffer.
         fifo_fill = spiRamFifoFill();
-        if (fifo_fill < readable_bytes)
-            readable_bytes = fifo_fill;                 // If the fifo can give us less, only take that amount
+        if (fifo_fill < bytes_to_read)
+            bytes_to_read = fifo_fill;                 // If the fifo can give us less, only take that amount
 
         // Can't take anything?
-        if (readable_bytes == 0) {
+        if (bytes_to_read == 0) {
 
             // EOF reached, stop decoder when all frames have been consumed
-            if(player->state == FINISHED) {
+            if(player->state == FINISHED || player->media_stream->eof) {
                 // clear the buffer
                 i2s_zero_dma_buffer(player->renderer_config->i2s_num);
                 return MAD_FLOW_STOP;
@@ -70,18 +70,18 @@ static enum mad_flow input(struct mad_stream *stream, player_t *player) {
 
             //Wait until there is enough data in the buffer. This only happens when the data feed
             //rate is too low, and shouldn't normally be needed!
-            printf("Buffer underflow, need %d bytes.\n", sizeof(read_buf) - rem);
+            printf("Buffer underflow, need %d bytes.\n", sizeof(read_buf) - bytes_left);
             buf_underrun_cnt++;
             //We both silence the output as well as wait a while by pushing silent samples into the i2s system.
             //This waits for about 200mS
             i2s_zero_dma_buffer(player->renderer_config->i2s_num);
         } else {
             //Read some bytes from the FIFO to re-fill the buffer.
-            spiRamFifoRead(&read_buf[rem], readable_bytes);
-            rem += readable_bytes;
+            spiRamFifoRead(&read_buf[bytes_left], bytes_to_read);
+            bytes_left += bytes_to_read;
 
             // break the loop if we have at least enough to decode the smallest possible frame
-            if(rem >= MIN_FRAME_SIZE)
+            if(bytes_left >= MIN_FRAME_SIZE)
                 break;
         }
     }
@@ -150,6 +150,7 @@ void mp3_decoder_task(void *pvParameters)
             }
             mad_synth_frame(synth, frame);
         }
+        // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
     }
 
     free(synth);
@@ -159,11 +160,8 @@ void mp3_decoder_task(void *pvParameters)
     // clear semaphore for reader task
     spiRamFifoReset();
 
+    ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
     printf("MAD: Decoder stopped.\n");
-
-    // ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
-    // ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
-
     vTaskDelete(NULL);
 }
 
