@@ -1,3 +1,5 @@
+menu "Web Radio / Bluetooth Speaker"
+
 menu "Wifi Configuration"
 
 config WIFI_SSID
@@ -16,10 +18,10 @@ config WIFI_PASSWORD
 
 endmenu
 
-menu "Audio"
+menu "Audio Output"
 
 choice
-    prompt "Select Audio Output"
+    prompt "Select Audio Output Mode"
     default I2S
     help
         This option selects the audio output.
@@ -38,7 +40,13 @@ config AUDIO_OUTPUT_MODE
     default 1 if AUDIO_OUTPUT_MODE_I2S_MERUS
     default 2 if AUDIO_OUTPUT_MODE_DAC_BUILT_IN
 
-config DAC_BUG_WORKAROUND
-	bool "Activate workaround when using Built-In DAC"
+endmenu
+
+menuconfig BT_SPEAKER_MODE
+    bool "Bluetooth Speaker Mode"
+    help
+       Select this option to turn on bluetooth speaker mode.
+       Web radio streaming will be unavailable.
+   depends on CLASSIC_BT_ENABLED
 
 endmenu

@@ -19,7 +19,6 @@
 #include "audio_player.h"
 #include "audio_renderer.h"
 
-#include "servo.h"
 
 #define TAG "renderer"
 
@@ -40,6 +39,15 @@ static unsigned short convert_16bit_stereo_to_8bit_stereo(short left, short righ
     left = (left >> 8) + 0x80;
     right = (right >> 8) + 0x80;
     return (left << 8) | (right & 0xff);
+}
+
+static unsigned int convert_16bit_stereo_to_dac_format(short left, short right)
+{
+    // The built-in DAC wants unsigned samples, so we shift the range
+    // from -32768 - 32767 to 0 - 65535.
+    left = left + 0x8000;
+    right = right + 0x8000;
+    return (left << 16) | (right & 0xffff);
 }
 
 static int convert_16bit_stereo_to_16bit_stereo(short left, short right)
@@ -84,7 +92,7 @@ static void init_i2s_dac(renderer_config_t *config)
     i2s_config_t i2s_config = {
             .mode = I2S_MODE_MASTER | I2S_MODE_TX | I2S_MODE_DAC_BUILT_IN, // Only TX
             .sample_rate = config->sample_rate,
-            .bits_per_sample = I2S_BITS_PER_SAMPLE_8BIT,    // Only 8-bit DAC support
+            .bits_per_sample = config->bit_depth,    // Only 8-bit DAC support
             .channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT,   // 2-channels
             .communication_format = I2S_COMM_FORMAT_I2S_MSB,
             .dma_buf_count = 14,                            // number of buffers, 128 max.
@@ -97,7 +105,6 @@ static void init_i2s_dac(renderer_config_t *config)
 }
 
 /* render callback for the libmad synth */
-static unsigned int avg_val = 0;
 void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num_samples, unsigned int num_channels)
 {
 
@@ -128,34 +135,24 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
             break;
 
         case I2S_BITS_PER_SAMPLE_16BIT:
+            ; // C grammar workaround
+            int samp16 = 0;
             for (int i=0; i < num_samples; i++) {
 
                 if(state == RENDER_STOPPED)
                     break;
 
-                int samp16 = convert_16bit_stereo_to_16bit_stereo(sample_buff_ch0[i], sample_buff_ch1[i]);
+                if(curr_config->output_mode == DAC_BUILT_IN) {
+                    samp16 = convert_16bit_stereo_to_dac_format(sample_buff_ch0[i], sample_buff_ch1[i]);
+                } else {
+                    samp16 = convert_16bit_stereo_to_16bit_stereo(sample_buff_ch0[i], sample_buff_ch1[i]);
+                }
+
                 int bytes_pushed = i2s_push_sample(curr_config->i2s_num,  (char *)&samp16, delay);
 
                 // DMA buffer full - retry
                 if(bytes_pushed == 0) {
                     i--;
-                } else {
-                    // avg_val = avg_val + sample_buff_ch0[i];
-
-                    // #define POWER 256
-                    // int alpha = 178;
-                    // avg_val = (alpha * sample_buff_ch0[i] + (POWER - alpha) * avg_val )/ POWER;
-
-                    // combine channels
-                    uint32_t duty = ((uint16_t) sample_buff_ch0[i] + (uint16_t) sample_buff_ch1[i]) / 2;
-
-                    // scale to 10 bits and clear top bits
-                    duty = ((duty >> 6) & 1023);
-
-                    // reduce degrees of rotation from 120° to 30°
-                    // duty = duty / 4;
-
-                    // motor_pwm_set(duty);
                 }
             }
             break;
@@ -184,7 +181,7 @@ void render_sample_block(short *sample_buff_ch0, short *sample_buff_ch1, int num
                     i--;
               }
 			}
-            break;
+	        break;
     }
 }
 
@@ -241,12 +238,11 @@ void audio_renderer_start(renderer_config_t *config)
     // update global
     curr_config = config;
     state = RENDER_ACTIVE;
+
     i2s_start(config->i2s_num);
 
     // buffer might contain noise
     i2s_zero_dma_buffer(config->i2s_num);
-
-    // motor_pwm_init();
 }
 
 void audio_renderer_stop(renderer_config_t *config)

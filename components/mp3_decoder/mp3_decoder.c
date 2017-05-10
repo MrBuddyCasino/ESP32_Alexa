@@ -117,7 +117,6 @@ void mp3_decoder_task(void *pvParameters)
 
     buf_underrun_cnt = 0;
 
-    player->decoder_status = RUNNING;
     printf("MAD: Decoder start.\n");
 
     //Initialize mp3 parts

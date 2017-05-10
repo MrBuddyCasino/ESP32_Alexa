@@ -101,23 +101,21 @@ int http_client_get(char *uri, http_parser_settings *callbacks, void *user_data)
     /* intercept on_headers_complete() */
 
     /* parse response */
-    http_parser *parser = calloc(1, sizeof(http_parser));
-    http_parser_init(parser, HTTP_RESPONSE);
-    parser->data = user_data;
+    http_parser parser;
+    http_parser_init(&parser, HTTP_RESPONSE);
+    parser.data = user_data;
 
     esp_err_t nparsed = 0;
     do {
         recved = read(sock, recv_buf, sizeof(recv_buf)-1);
 
         // using http parser causes stack overflow somtimes - disable for now
-        // nparsed = http_parser_execute(parser, callbacks, recv_buf, recved);
+        nparsed = http_parser_execute(&parser, callbacks, recv_buf, recved);
 
         // invoke on_body cb directly
-        nparsed = callbacks->on_body(parser, recv_buf, recved);
+        // nparsed = callbacks->on_body(&parser, recv_buf, recved);
     } while(recved > 0 && nparsed >= 0);
 
-    free(parser);
-    free(callbacks);
     free(url);
 
     ESP_LOGI(TAG, "... done reading from socket. Last read return=%d errno=%d", recved, errno);

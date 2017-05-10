@@ -25,6 +25,10 @@
 #include "playerconfig.h"
 #include "app_main.h"
 #include "alexa.h"
+#include "mdns_task.h"
+#ifdef CONFIG_BT_SPEAKER_MODE
+#include "bt_speaker.h"
+#endif
 
 
 #define WIFI_LIST_NUM   10
@@ -178,11 +182,7 @@ static renderer_config_t *create_renderer_config()
     }
 
     if(renderer_config->output_mode == DAC_BUILT_IN) {
-        renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_8BIT;
-#ifdef CONFIG_DAC_BUG_WORKAROUND
-        // DAC is consuming samples too fast by default
-        renderer_config->sample_rate_modifier = 0.0625;
-#endif
+        renderer_config->bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
     }
 
     return renderer_config;
@@ -200,7 +200,7 @@ static void start_web_radio()
     radio_config->player_config->command = CMD_NONE;
     radio_config->player_config->decoder_status = UNINITIALIZED;
     radio_config->player_config->decoder_command = CMD_NONE;
-    radio_config->player_config->buffer_pref = FAST;
+    radio_config->player_config->buffer_pref = SAFE;
     radio_config->player_config->media_stream = calloc(1, sizeof(media_stream_t));
 
     // init renderer
@@ -218,12 +218,16 @@ void app_main()
 {
 ESP_LOGI(TAG, "starting app_main()");
     init_hardware();
-    start_wifi();
 
+#ifdef CONFIG_BT_SPEAKER_MODE
+    bt_speaker_start(create_renderer_config());
+#else
+    start_wifi();
+    //start_web_radio();
     // can't mix cores when allocating interrupts
     xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 1);
+#endif
 
-    // start_web_radio();
 
     ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
     // ESP_LOGI(TAG, "app_main stack: %d\n", uxTaskGetStackHighWaterMark(NULL));

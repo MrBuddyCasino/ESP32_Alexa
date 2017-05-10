@@ -144,7 +144,7 @@ static esp_err_t alloc_http2_session_data(http2_session_data_t **session_data_pt
     return ESP_OK;
 }
 
-esp_err_t free_ssl_session_data(ssl_session_data *session, int ret)
+esp_err_t free_ssl_session_data(ssl_session_data *session, int32_t ret)
 {
     if(session == NULL)
         return ESP_ERR_INVALID_ARG;
@@ -486,9 +486,9 @@ esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
 /*
  * Make an encrypted TLS connection.
  */
-esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint16_t port)
+int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint16_t port)
 {
-    int ret;
+    int32_t ret;
 
     if((ret = alloc_ssl_session_data(ssl_session_ptr)) != ESP_OK)
     {
@@ -524,14 +524,14 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
-        return ESP_FAIL;
+        return ret;
     }
 
     // alpn
     if((ret = mbedtls_ssl_conf_alpn_protocols(conf, alpn_list )) != 0 )
      {
          mbedtls_printf( " failed\n  ! mbedtls_ssl_conf_alpn_protocols returned %d\n\n", ret );
-         return ESP_FAIL;
+         return ret;
      }
 
     /* restrict cypher suites */
@@ -606,7 +606,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     if (ret != 0)
     {
         ESP_LOGE(TAG, "mbedtls_net_connect returned -%x", -ret);
-        return ESP_FAIL;
+        return ret;
     }
 
     ESP_LOGI(TAG, "Connected.");
@@ -655,7 +655,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
 /* establish SSL connection and create a new session */
 esp_err_t nghttp_new_connection(http2_session_data_t *http2_session, url_t *url)
 {
-    int ret;
+    int32_t ret;
     ssl_session_data *ssl_session;
 
     /* connect using tls */

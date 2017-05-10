@@ -43,3 +43,17 @@ void motor_pwm_set(uint32_t duty)
     ESP_ERROR_CHECK(
             ledc_update_duty(LEDC_HIGH_SPEED_MODE, MOTOR_PWM_CHANNEL));
 }
+
+void filter()
+{
+    // combine channels
+    // uint32_t duty = ((uint16_t) sample_buff_ch0[i] + (uint16_t) sample_buff_ch1[i]) / 2;
+
+    // scale to 10 bits and clear top bits
+    // duty = ((duty >> 6) & 1023);
+
+    // reduce degrees of rotation from 120° to 30°
+    // duty = duty / 4;
+
+    // motor_pwm_set(duty);
+}

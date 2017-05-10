@@ -15,7 +15,8 @@
 #include "esp_system.h"
 #include "esp_log.h"
 
-//#include "libfaad_decoder.h"
+#include "fdk_aac_decoder.h"
+#include "libfaad_decoder.h"
 #include "mp3_decoder.h"
 #include "controls.h"
 
@@ -40,9 +41,15 @@ static int start_decoder_task(player_t *player)
         case AUDIO_AAC:
         case AUDIO_MP4:
         case OCTET_STREAM: // probably .aac
-            // task_func = libfaac_decoder_task;
+            /*
+            task_func = libfaac_decoder_task;
             task_name = "libfaac_decoder_task";
             stack_depth = 55000;
+            */
+            task_func = fdkaac_decoder_task;
+            task_name = "fdkaac_decoder_task";
+            stack_depth = 6144;
+
             break;
 
         default:
@@ -54,6 +61,8 @@ static int start_decoder_task(player_t *player)
     PRIO_MAD, NULL, 1) != pdPASS) {
         ESP_LOGE(TAG, "ERROR creating decoder task! Out of memory?");
         return -1;
+    } else {
+        player->decoder_status = RUNNING;
     }
 
     ESP_LOGI(TAG, "created decoder task: %s", task_name);
