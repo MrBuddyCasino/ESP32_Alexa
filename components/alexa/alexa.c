@@ -126,7 +126,10 @@ static int create_alexa_session(alexa_session_t **alexa_session_ptr)
 
     // init player
     alexa_session->player_config = calloc(1, sizeof(player_t));
-    alexa_session->player_config->state = IDLE;
+    alexa_session->player_config->status = UNINITIALIZED;
+    alexa_session->player_config->command = CMD_NONE;
+    alexa_session->player_config->decoder_status = UNINITIALIZED;
+    alexa_session->player_config->decoder_command = CMD_NONE;
     alexa_session->player_config->buffer_pref = FAST;
     alexa_session->player_config->media_stream = calloc(1, sizeof(media_stream_t));
     alexa_session->player_config->media_stream->eof = true;
@@ -200,6 +203,8 @@ int on_header_value(multipart_parser *parser, const char *at, size_t length)
     alexa_stream_t *alexa_stream = multipart_parser_get_data(parser);
     alexa_session_t *alexa_session = alexa_stream->alexa_session;
 
+    printf("on_header_value %.*s\n", (int)length, at);
+
     // assumes audio on application/octet-stream
     if(strncmp("application/octet-stream", at, length) == 0) {
         printf("audio part detected\n");
@@ -211,8 +216,6 @@ int on_header_value(multipart_parser *parser, const char *at, size_t length)
         audio_player_start(alexa_session->player_config);
     }
 
-    printf("on_header_value %.*s\n", (int)length, at);
-
     return 0;
 }
 
@@ -223,7 +226,7 @@ int on_part_data(multipart_parser *parser, const char *at, size_t length)
 
     if(alexa_stream->current_part == AUDIO_DATA)
     {
-        // printf("feeding player\n");
+        printf("feeding player\n");
         audio_stream_consumer(at, length, alexa_session->player_config);
     }
 
@@ -251,10 +254,7 @@ int on_part_data_end(multipart_parser *parser)
     printf("on_part_data_end\n");
 
     if(alexa_stream->current_part == AUDIO_DATA) {
-        // printf("stopping player\n");
-        alexa_session->player_config->state = FINISHED;
         alexa_session->player_config->media_stream->eof = true;
-        // audio_player_stop(alexa_response->player_config);
     }
 
     return 0;
@@ -624,6 +624,7 @@ int send_speech(alexa_session_t *alexa_session)
 {
     alexa_session->eventchannel->next_action = META_HEADERS;
     alexa_session->eventchannel->file_pos = 0;
+    alexa_session->eventchannel->current_part = META_HEADERS;
 
     nghttp2_data_provider *data_provider_struct = calloc(1,
                 sizeof(nghttp2_data_provider));

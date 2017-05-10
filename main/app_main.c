@@ -196,7 +196,10 @@ static void start_web_radio()
 
     // init player config
     radio_config->player_config = calloc(1, sizeof(player_t));
-    radio_config->player_config->state = STOPPED;
+    radio_config->player_config->status = UNINITIALIZED;
+    radio_config->player_config->command = CMD_NONE;
+    radio_config->player_config->decoder_status = UNINITIALIZED;
+    radio_config->player_config->decoder_command = CMD_NONE;
     radio_config->player_config->buffer_pref = FAST;
     radio_config->player_config->media_stream = calloc(1, sizeof(media_stream_t));
 

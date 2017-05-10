@@ -62,17 +62,17 @@ static int start_decoder_task(player_t *player)
 }
 
 static int t;
-static bool decoder_started = false;
-/* pushes bytes into the FIFO queue, starts decoder task if necessary */
+
+/* Writes bytes into the FIFO queue, starts decoder task if necessary. */
 int audio_stream_consumer(const char *recv_buf, ssize_t bytes_read,
         void *user_data)
 {
     player_t *player = user_data;
 
     // don't bother consuming bytes if stopped
-    if (player->state == STOPPED) {
-        // TODO: add proper synchronization, this is just an assumption
-        decoder_started = false;
+    if(player->command == CMD_STOP) {
+        player->decoder_command = CMD_STOP;
+        player->command = CMD_NONE;
         return -1;
     }
 
@@ -86,14 +86,13 @@ int audio_stream_consumer(const char *recv_buf, ssize_t bytes_read,
     // seems 4k is enough to prevent initial buffer underflow
     uint8_t min_fill_lvl = player->buffer_pref == FAST ? 20 : 90;
     bool buffer_ok = fill_level > min_fill_lvl;
-    if (!decoder_started && player->state == STARTED && buffer_ok) {
+    if (player->decoder_status != RUNNING && buffer_ok) {
 
         // buffer is filled, start decoder
         if (start_decoder_task(player) != 0) {
+            ESP_LOGE(TAG, "failed to start decoder task");
             return -1;
         }
-
-        decoder_started = true;
     }
 
     t = (t + 1) & 255;
@@ -108,22 +107,24 @@ void audio_player_init(player_t *player)
 {
     // initialize I2S
     audio_renderer_init(player->renderer_config);
+    player->status = INITIALIZED;
 }
 
 void audio_player_destroy(player_t *player)
 {
     // halt I2S
     audio_renderer_destroy(player->renderer_config);
+    player->status = UNINITIALIZED;
 }
 
 void audio_player_start(player_t *player)
 {
     audio_renderer_start(player->renderer_config);
-    player->state = STARTED;
+    player->status = RUNNING;
 }
 
 void audio_player_stop(player_t *player)
 {
     audio_renderer_stop(player->renderer_config);
-    player->state = STOPPED;
+    player->status = STOPPED;
 }
