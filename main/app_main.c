@@ -217,7 +217,8 @@ ESP_LOGI(TAG, "starting app_main()");
     init_hardware();
     start_wifi();
 
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
+    // can't mix cores when allocating interrupts
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 1);
 
     // start_web_radio();
 

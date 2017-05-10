@@ -93,8 +93,10 @@ void auth_token_refresh(alexa_session_t *alexa_session)
     nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, auth_on_stream_close_callback);
 
     http2_session_data_t *http2_session_auth;
+    int32_t stream_id;
     int ret = nghttp_new_session(&http2_session_auth,
                     REFRESH_TOKEN_URI, "GET",
+                    &stream_id,
                     NULL, 0,
                     NULL,
                     callbacks,
@@ -103,6 +105,8 @@ void auth_token_refresh(alexa_session_t *alexa_session)
 
     if(ret != 0) {
         free_http2_session_data(http2_session_auth, ret);
+        ESP_LOGI(TAG, "nghttp_new_session finished with %d", ret);
+        return;
     }
 
     ret = read_write_loop(http2_session_auth->nghttp2_session, http2_session_auth->ssl_session->ssl_context);

@@ -52,6 +52,7 @@ void free_http2_session_data(http2_session_data_t *session_data, int ret);
  */
 int nghttp_new_session(http2_session_data_t **http2_session_ptr,
                     char *uri, char *method,
+                    int32_t *stream_id,
                     nghttp2_nv *headers,  size_t hdr_len,
                     nghttp2_data_provider *data_provider_struct,
                     nghttp2_session_callbacks *callbacks,
@@ -62,6 +63,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
  * @brief create a new stream for an existing session
  */
 int nghttp_new_stream(http2_session_data_t *http2_session,
+        int32_t *stream_id,
         void *stream_user_data,
         char *uri, char *method,
         nghttp2_nv *headers,  size_t hdr_len,

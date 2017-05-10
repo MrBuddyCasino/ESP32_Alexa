@@ -246,7 +246,7 @@ void audio_renderer_start(renderer_config_t *config)
     // buffer might contain noise
     i2s_zero_dma_buffer(config->i2s_num);
 
-    motor_pwm_init();
+    // motor_pwm_init();
 }
 
 void audio_renderer_stop(renderer_config_t *config)

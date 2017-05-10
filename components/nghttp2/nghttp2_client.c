@@ -612,6 +612,7 @@ esp_err_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, ui
     ESP_LOGI(TAG, "Connected.");
 
     mbedtls_ssl_set_bio(ssl_context, server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
+    mbedtls_net_set_nonblock(server_fd);
 
     ESP_LOGI(TAG, "Performing the SSL/TLS handshake...");
 
@@ -681,8 +682,11 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
     bzero(buf, sizeof(buf));
 
     do {
+        // taskYIELD() doesn't work for some reason, so sleep
+        vTaskDelay( 10 / portTICK_PERIOD_MS ); // sleep 10ms
 
         if(!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)) {
+            // ESP_LOGE(TAG, "!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)");
             break;
         }
 
@@ -698,14 +702,40 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
 
         // avoid blocking read
         if(!nghttp2_session_want_read(session)) {
+            // ESP_LOGI(TAG, "!nghttp2_session_want_read()");
             continue;
         }
 
+
+        /*
+        ESP_LOGI(TAG, "entering mbedtls_ssl_read() loop");
+        while((ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf))) <= 0)
+        {
+            if(ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE)
+            {
+                if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
+                    ESP_LOGI(TAG, "The peer notified us that the connection is going to be closed.");
+                    ret = 0;
+                    break;
+                }
+
+                ESP_LOGE(TAG, "mbedtls_ssl_write returned -0x%x", -ret);
+                return ret;
+            }
+
+            ESP_LOGI(TAG, "%u vTaskDelay()", __LINE__);
+            // taskYIELD();
+            vTaskDelay( 10 / portTICK_PERIOD_MS ); // sleep 10ms
+        }
+        */
+
+
         ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf) );
-        ESP_LOGI(TAG, "mbedtls_ssl_read ret = %d", ret);
+        // ESP_LOGI(TAG, "mbedtls_ssl_read ret = %d", ret);
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
-            // continue;
+            // ESP_LOGI(TAG, "%u MBEDTLS_ERR_SSL_WANT_READ || MBEDTLS_ERR_SSL_WANT_WRITE", __LINE__);
+            continue;
         }
 
         if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
@@ -713,6 +743,7 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
             ret = 0;
             break;
         }
+
 
         if(ret < 0)
         {
@@ -738,9 +769,8 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
             break;
         }
 
-        // taskYIELD();
 
-    } while (ret >= 0);
+    } while (ret >= 0 || ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE);
 
     return ret;
 }
@@ -764,6 +794,7 @@ void event_loop_task(void *pvParameters)
 /* Make a new request. */
 int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 					char *uri, char *method,
+					int32_t *stream_id,
         			nghttp2_nv *headers,  size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
 			        nghttp2_session_callbacks *callbacks,
@@ -773,7 +804,6 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     int ret;
     http2_session_data_t *session_data;
     url_t *url;
-    int32_t stream_id;
 
     ESP_LOGI(TAG, "new nghttp session, uri: %s", uri);
 
@@ -808,10 +838,10 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     // send client settings
     send_client_connection_header(session_data->nghttp2_session);
 
-    if((stream_id = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
+    if(((*stream_id) = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
     	url_free(url);
-        return stream_id;
+        return (*stream_id);
     }
 
     url_free(url);
@@ -823,13 +853,13 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 
 
 int32_t nghttp_new_stream(http2_session_data_t *http2_session,
+        int32_t *stream_id,
         void *stream_user_data,
         char *uri, char *method,
         nghttp2_nv *headers,  size_t hdr_len,
         nghttp2_data_provider *data_provider_struct)
 {
     url_t *url;
-    int32_t stream_id;
 
     ESP_LOGI(TAG, "new nghttp stream, uri: %s", uri);
 
@@ -839,10 +869,10 @@ int32_t nghttp_new_stream(http2_session_data_t *http2_session,
         return -1;
     }
 
-    if((stream_id = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
+    if(((*stream_id) = submit_request(http2_session, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
         ESP_LOGI(TAG, "failed to submit request");
         url_free(url);
-        return stream_id;
+        return (*stream_id);
     }
 
     url_free(url);
