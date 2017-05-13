@@ -46,12 +46,13 @@ void fdkaac_decoder_task(void *pvParameters)
     fill_read_buffer(in_buf);
 
     HANDLE_AACDECODER handle = NULL;
+    pcm_format_t pcm_format = {.buffer_format = PCM_INTERLEAVED};
 
     /* select bitstream format */
     if (player->media_stream->content_type == AUDIO_MP4) {
+
         demux_res_t demux_res;
         stream_t input_stream;
-
         memset(&demux_res, 0, sizeof(demux_res));
 
         stream_create(&input_stream, in_buf);
@@ -72,8 +73,9 @@ void fdkaac_decoder_task(void *pvParameters)
         }
 
         // If out-of-band config data (AudioSpecificConfig(ASC) or StreamMuxConfig(SMC)) is available
-        err = aacDecoder_ConfigRaw(handle, &demux_res.codecdata,
-                &demux_res.codecdata_len);
+        uint8_t ascData[1] = {demux_res.codecdata};
+        const uint32_t ascDataLen[1] = {demux_res.codecdata_len};
+        err = aacDecoder_ConfigRaw(handle, &demux_res.codecdata, &demux_res.codecdata_len);
         if (err != AAC_DEC_OK) {
             ESP_LOGE(TAG, "aacDecoder_ConfigRaw error %d", err);
             goto cleanup;
@@ -124,21 +126,28 @@ void fdkaac_decoder_task(void *pvParameters)
         }
 
         if (err != AAC_DEC_OK) {
-            ESP_LOGE(TAG, "decode error %d", err);
+            ESP_LOGE(TAG, "decode error 0x%08x", err);
             continue;
         }
 
         /* print first frame, determine pcm buffer length */
         if(first_frame) {
             first_frame = false;
+
             CStreamInfo* mStreamInfo = aacDecoder_GetStreamInfo(handle);
+
             pcm_size = mStreamInfo->frameSize * sizeof(int16_t)
                     * mStreamInfo->numChannels;
+
             ESP_LOGI(TAG, "pcm_size %d, channels: %d, sample rate: %d, object type: %d, bitrate: %d", pcm_size, mStreamInfo->numChannels,
                     mStreamInfo->sampleRate, mStreamInfo->aot, mStreamInfo->bitRate);
+
+            pcm_format.bit_depth = I2S_BITS_PER_SAMPLE_16BIT;
+            pcm_format.num_channels = mStreamInfo->numChannels;
+            pcm_format.sample_rate = mStreamInfo->sampleRate;
         }
 
-        i2s_write_bytes(player->renderer_config->i2s_num, (const char *) pcm_buf->base, pcm_size, 1000 / portTICK_PERIOD_MS);
+        render_samples((const char *) pcm_buf->base, pcm_size, &pcm_format);
 
         // ESP_LOGI(TAG, "fdk_aac_decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
         // ESP_LOGI(TAG, "%u free heap %u", __LINE__, esp_get_free_heap_size());

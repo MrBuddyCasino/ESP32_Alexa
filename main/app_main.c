@@ -133,7 +133,7 @@ static void init_hardware()
     nvs_flash_init();
 
     // init UI
-    ui_init(GPIO_NUM_32);
+    // ui_init(GPIO_NUM_32);
 
     //Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
     //doesn't, warn user.
@@ -200,11 +200,11 @@ static void start_web_radio()
     radio_config->player_config->command = CMD_NONE;
     radio_config->player_config->decoder_status = UNINITIALIZED;
     radio_config->player_config->decoder_command = CMD_NONE;
-    radio_config->player_config->buffer_pref = SAFE;
+    radio_config->player_config->buffer_pref = BUF_PREF_SAFE;
     radio_config->player_config->media_stream = calloc(1, sizeof(media_stream_t));
 
     // init renderer
-    radio_config->player_config->renderer_config = create_renderer_config();
+    renderer_init(create_renderer_config());
 
     // start radio
     web_radio_init(radio_config);
@@ -216,7 +216,9 @@ static void start_web_radio()
  */
 void app_main()
 {
-ESP_LOGI(TAG, "starting app_main()");
+    ESP_LOGI(TAG, "starting app_main()");
+    ESP_LOGI(TAG, "RAM left: %u", esp_get_free_heap_size());
+
     init_hardware();
 
 #ifdef CONFIG_BT_SPEAKER_MODE
