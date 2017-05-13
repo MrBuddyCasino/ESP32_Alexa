@@ -126,11 +126,10 @@ static int create_alexa_session(alexa_session_t **alexa_session_ptr)
 
     // init player
     alexa_session->player_config = calloc(1, sizeof(player_t));
-    alexa_session->player_config->status = UNINITIALIZED;
     alexa_session->player_config->command = CMD_NONE;
     alexa_session->player_config->decoder_status = UNINITIALIZED;
     alexa_session->player_config->decoder_command = CMD_NONE;
-    alexa_session->player_config->buffer_pref = FAST;
+    alexa_session->player_config->buffer_pref = BUF_PREF_FAST;
     alexa_session->player_config->media_stream = calloc(1, sizeof(media_stream_t));
     alexa_session->player_config->media_stream->eof = true;
     alexa_session->player_config->media_stream->content_type = MIME_UNKNOWN;
