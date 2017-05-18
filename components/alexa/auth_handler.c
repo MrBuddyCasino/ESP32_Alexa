@@ -54,7 +54,7 @@ int auth_on_stream_close_callback(nghttp2_session *session,
                                     void *user_data)
 {
     http2_session_data_t *session_data = user_data;
-    alexa_session_t *alexa_session = session_data->session_user_data;
+    alexa_session_t *alexa_session = session_data->user_data;
 
     buffer_t *buffer = nghttp2_session_get_stream_user_data(session, stream_id);
 
@@ -109,7 +109,7 @@ void auth_token_refresh(alexa_session_t *alexa_session)
         return;
     }
 
-    ret = read_write_loop(http2_session_auth->nghttp2_session, http2_session_auth->ssl_session->ssl_context);
+    ret = read_write_loop(http2_session_auth);
     ESP_LOGI(TAG, "auth_token_refresh event loop finished with %d", ret);
     free_http2_session_data(http2_session_auth, ret);
 

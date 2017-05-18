@@ -32,16 +32,18 @@ typedef struct
 typedef struct
 {
     /* nghttp2_session is hidden */
-    nghttp2_session *nghttp2_session;
+    nghttp2_session *h2_session;
 
     /* underlying connection */
     ssl_session_data *ssl_session;
 
-    /* current number of outgoing streams */
+    /* current number of outgoing streams because
+     * session_data->nghttp2_session->num_outgoing_streams is private
+     */
     uint8_t num_outgoing_streams;
 
     /* your place */
-    void *session_user_data;
+    void *user_data;
 
 } http2_session_data_t;
 
@@ -71,7 +73,7 @@ int nghttp_new_stream(http2_session_data_t *http2_session,
 
 
 void event_loop_task(void *pvParameters);
-int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context);
+int read_write_loop(http2_session_data_t* http2_session);
 
 int create_default_callbacks(nghttp2_session_callbacks **callbacks_ptr);
 

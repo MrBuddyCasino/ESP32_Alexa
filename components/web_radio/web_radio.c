@@ -120,7 +120,7 @@ static void http_get_task(void *pvParameters)
 void web_radio_start(web_radio_t *config)
 {
     // start reader task
-    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 2560, config, 20,
+    xTaskCreatePinnedToCore(&http_get_task, "http_get_task", 4096 * 2, config, 20,
     NULL, 0);
 }
 
@@ -141,21 +141,21 @@ void web_radio_gpio_handler_task(void *pvParams)
     uint32_t io_num;
     for (;;) {
         if (xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+            ESP_LOGI(TAG, "GPIO[%d] intr, val: %d", io_num, gpio_get_level(io_num));
 
             switch (get_player_status()) {
                 case RUNNING:
-                    printf("stopping player\n");
+                    ESP_LOGI(TAG, "stopping player");
                     web_radio_stop(config);
                     break;
 
                 case STOPPED:
-                    printf("starting player\n");
+                    ESP_LOGI(TAG, "starting player");
                     web_radio_start(config);
                     break;
 
                 default:
-                    printf("player state: %d\n", get_player_status());
+                    ESP_LOGI(TAG, "player state: %d", get_player_status());
             }
         }
     }
@@ -163,7 +163,7 @@ void web_radio_gpio_handler_task(void *pvParams)
 
 void web_radio_init(web_radio_t *config)
 {
-    controls_init(web_radio_gpio_handler_task, 2048, config);
+    // controls_init(web_radio_gpio_handler_task, 2048, config);
     audio_player_init(config->player_config);
 }
 

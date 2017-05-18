@@ -183,7 +183,7 @@ void free_http2_session_data(http2_session_data_t *session_data, int ret)
     }
 
     ESP_LOGI(TAG, "freeing http2_session_data");
-    nghttp2_session_del(session_data->nghttp2_session);
+    nghttp2_session_del(session_data->h2_session);
 
     free(session_data);
 
@@ -193,7 +193,7 @@ void free_http2_session_data(http2_session_data_t *session_data, int ret)
 static void print_header(const uint8_t *name, size_t namelen,
         const uint8_t *value, size_t valuelen)
 {
-    printf("%s: %s\n", name, value);
+    ESP_LOGI(TAG, "%s: %s", name, value);
 }
 
 /* Print HTTP headers to |f|. Please note that this function does not
@@ -206,7 +206,7 @@ static void print_headers(nghttp2_nv *nva, size_t nvlen)
         print_header(nva[i].name, nva[i].namelen, nva[i].value,
                 nva[i].valuelen);
     }
-    printf("\n");
+    ESP_LOGI(TAG, "");
 }
 
 /* nghttp2_send_callback. Here we transmit the |data|, |length| bytes,
@@ -258,7 +258,7 @@ static int on_begin_headers_callback(nghttp2_session *session,
     switch (frame->hd.type) {
         case NGHTTP2_HEADERS:
             if (frame->headers.cat == NGHTTP2_HCAT_RESPONSE) {
-                ESP_LOGI(TAG, "Response headers for stream ID=%d:\n",
+                ESP_LOGI(TAG, "Response headers for stream ID=%d:",
                         frame->hd.stream_id);
             }
             break;
@@ -300,7 +300,7 @@ static int on_data_chunk_recv_callback(nghttp2_session *session, uint8_t flags,
         int32_t stream_id, const uint8_t *data, size_t len, void *user_data)
 {
     // http2_session_data *session_data = (http2_session_data *) user_data;
-    printf("%.*s", len, data);
+    ESP_LOGI(TAG, "%.*s", len, data);
 
     return 0;
 }
@@ -329,7 +329,7 @@ ssize_t on_data_source_read_length_callback (
     int32_t session_remote_window_size, int32_t stream_remote_window_size,
     uint32_t remote_max_frame_size, void *user_data)
 {
-    ssize_t len = 1024; // 8192
+    ssize_t len = 2048; // 8192
     len = min(len, session_remote_window_size);
     len = min(len, stream_remote_window_size);
     len = min(len, remote_max_frame_size);
@@ -447,7 +447,7 @@ static esp_err_t submit_request(http2_session_data_t *session_data,
 
     /* submit request */
 
-    stream_id = nghttp2_submit_request(session_data->nghttp2_session, NULL, hdrs,
+    stream_id = nghttp2_submit_request(session_data->h2_session, NULL, hdrs,
             ARRLEN(hdrs), data_prd, stream_user_data);
 
     if (stream_id < 0) {
@@ -530,7 +530,7 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
     // alpn
     if((ret = mbedtls_ssl_conf_alpn_protocols(conf, alpn_list )) != 0 )
      {
-         mbedtls_printf( " failed\n  ! mbedtls_ssl_conf_alpn_protocols returned %d\n\n", ret );
+         ESP_LOGI(TAG, " failed\n  ! mbedtls_ssl_conf_alpn_protocols returned %d", ret );
          return ret;
      }
 
@@ -549,7 +549,7 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
      server_root_cert_pem_end-server_root_cert_pem_start);
 
     if (ret < 0) {
-        ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x\n\n", -ret);
+        ESP_LOGE(TAG, "mbedtls_x509_crt_parse returned -0x%x", -ret);
         return ESP_FAIL;
     }
     */
@@ -588,7 +588,7 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
 
     ret = mbedtls_ssl_setup(ssl_context, conf);
     if (ret != 0) {
-        ESP_LOGE(TAG, "mbedtls_ssl_setup returned -0x%x\n\n", -ret);
+        ESP_LOGE(TAG, "mbedtls_ssl_setup returned -0x%x", -ret);
         return ret;
     }
 
@@ -611,8 +611,8 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
 
     ESP_LOGI(TAG, "Connected.");
 
-    mbedtls_ssl_set_bio(ssl_context, server_fd, mbedtls_net_send, mbedtls_net_recv, NULL);
-    mbedtls_net_set_nonblock(server_fd);
+    mbedtls_ssl_set_bio(ssl_context, server_fd, mbedtls_net_send, mbedtls_net_recv, mbedtls_net_recv_timeout);
+    //mbedtls_net_set_nonblock(server_fd);
 
     ESP_LOGI(TAG, "Performing the SSL/TLS handshake...");
 
@@ -649,6 +649,9 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
         ESP_LOGI(TAG, "Certificate verified.");
     }
 
+    // configure non-blocking reads
+    mbedtls_ssl_conf_read_timeout(conf, 10);
+
     return 0;
 }
 
@@ -675,59 +678,39 @@ esp_err_t nghttp_new_connection(http2_session_data_t *http2_session, url_t *url)
 /*
  * Read from the connection
  */
-int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
+int read_write_loop(http2_session_data_t* http2_session)
 {
+    nghttp2_session *h2 = http2_session->h2_session;
+    mbedtls_ssl_context *ssl_context = http2_session->ssl_session->ssl_context;
+
     esp_err_t ret = 0;
-    uint8_t buf[512];
+    uint8_t buf[1024];
     bzero(buf, sizeof(buf));
 
     do {
-        // taskYIELD() doesn't work for some reason, so sleep
-        vTaskDelay( 10 / portTICK_PERIOD_MS ); // sleep 10ms
 
-        if(!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)) {
+        if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
             // ESP_LOGE(TAG, "!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)");
             break;
         }
 
         /* send pending outgoing frames */
-        if(nghttp2_session_want_write(session)) {
-            ret = nghttp2_session_send(session);
-            ESP_LOGI(TAG, "nghttp2_session_send ret = %d", ret);
+        if(nghttp2_session_want_write(h2)) {
+            ret = nghttp2_session_send(h2);
+            // ESP_LOGI(TAG, "nghttp2_session_send ret = %d", ret);
             if (ret != 0) {
                 ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
                 break;
             }
+        } else {
+            // ESP_LOGI(TAG, "!nghttp2_session_want_write()");
         }
 
         // avoid blocking read
-        if(!nghttp2_session_want_read(session)) {
+        if(!nghttp2_session_want_read(h2)) {
             // ESP_LOGI(TAG, "!nghttp2_session_want_read()");
             continue;
         }
-
-
-        /*
-        ESP_LOGI(TAG, "entering mbedtls_ssl_read() loop");
-        while((ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf))) <= 0)
-        {
-            if(ret != MBEDTLS_ERR_SSL_WANT_READ && ret != MBEDTLS_ERR_SSL_WANT_WRITE)
-            {
-                if(ret == MBEDTLS_ERR_SSL_PEER_CLOSE_NOTIFY) {
-                    ESP_LOGI(TAG, "The peer notified us that the connection is going to be closed.");
-                    ret = 0;
-                    break;
-                }
-
-                ESP_LOGE(TAG, "mbedtls_ssl_write returned -0x%x", -ret);
-                return ret;
-            }
-
-            ESP_LOGI(TAG, "%u vTaskDelay()", __LINE__);
-            // taskYIELD();
-            vTaskDelay( 10 / portTICK_PERIOD_MS ); // sleep 10ms
-        }
-        */
 
 
         ret = mbedtls_ssl_read(ssl_context, buf, sizeof(buf) );
@@ -735,6 +718,11 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
 
         if(ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE) {
             // ESP_LOGI(TAG, "%u MBEDTLS_ERR_SSL_WANT_READ || MBEDTLS_ERR_SSL_WANT_WRITE", __LINE__);
+            continue;
+        }
+
+        if(ret == MBEDTLS_ERR_SSL_TIMEOUT) {
+            // ESP_LOGI(TAG, "mbedtls_ssl_read ret = MBEDTLS_ERR_SSL_TIMEOUT");
             continue;
         }
 
@@ -761,7 +749,7 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
         // ESP_LOGI(TAG, "%d bytes read", ret);
 
         // copy received bytes to nghttp2
-        ret = nghttp2_session_mem_recv(session,
+        ret = nghttp2_session_mem_recv(h2,
                 buf, ret);
 
         if (ret < 0) {
@@ -770,7 +758,7 @@ int read_write_loop(nghttp2_session *session, mbedtls_ssl_context *ssl_context)
         }
 
 
-    } while (ret >= 0 || ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE);
+    } while (ret >= 0 || ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE ||  MBEDTLS_ERR_SSL_TIMEOUT);
 
     return ret;
 }
@@ -780,12 +768,12 @@ void event_loop_task(void *pvParameters)
 {
     ESP_LOGI(TAG, "starting network loop");
     http2_session_data_t* http2_session = pvParameters;
-    int ret = read_write_loop(http2_session->nghttp2_session, http2_session->ssl_session->ssl_context);
+    int ret = read_write_loop(http2_session);
     ESP_LOGI(TAG, "event loop finished with %d", ret);
 
     free_http2_session_data(http2_session, ret);
 
-    ESP_LOGI(TAG, "event_loop_task stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    ESP_LOGI(TAG, "event_loop_task stack: %d", uxTaskGetStackHighWaterMark(NULL));
 
     vTaskDelete(NULL);
 }
@@ -812,7 +800,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
         return ret;
     }
     session_data = (*http2_session_ptr);
-    session_data->session_user_data = session_user_data;
+    session_data->user_data = session_user_data;
 
 
     /* parse url */
@@ -827,7 +815,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     }
 
     // register callbacks
-    if((ret = register_session_callbacks(&session_data->nghttp2_session, callbacks, session_data)) != 0) {
+    if((ret = register_session_callbacks(&session_data->h2_session, callbacks, session_data)) != 0) {
         url_free(url);
         return ret;
     }
@@ -836,7 +824,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     ESP_LOGI(TAG, "Writing HTTP request...");
 
     // send client settings
-    send_client_connection_header(session_data->nghttp2_session);
+    send_client_connection_header(session_data->h2_session);
 
     if(((*stream_id) = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
@@ -845,8 +833,6 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     }
 
     url_free(url);
-
-    // nghttp2_session_set_stream_user_data(http2_session->session, stream_id, stream_user_data);
 
     return ret;
 }

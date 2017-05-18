@@ -21,8 +21,10 @@
 #include "ui.h"
 #include "spiram_fifo.h"
 #include "audio_renderer.h"
+#include "audio_recorder.h"
 #include "web_radio.h"
 #include "playerconfig.h"
+#include "wifi.h"
 #include "app_main.h"
 #include "alexa.h"
 #include "mdns_task.h"
@@ -44,50 +46,6 @@
 
 
 
-/* event handler for pre-defined wifi events */
-static esp_err_t event_handler(void *ctx, system_event_t *event)
-{
-    EventGroupHandle_t wifi_event_group = ctx;
-
-    switch (event->event_id)
-    {
-    case SYSTEM_EVENT_STA_START:
-        esp_wifi_connect();
-        break;
-
-    case SYSTEM_EVENT_STA_GOT_IP:
-        xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
-        break;
-
-    case SYSTEM_EVENT_STA_DISCONNECTED:
-        /* This is a workaround as ESP32 WiFi libs don't currently
-           auto-reassociate. */
-        esp_wifi_connect();
-        xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
-        break;
-
-    default:
-        break;
-    }
-
-    return ESP_OK;
-}
-
-static void initialise_wifi(EventGroupHandle_t wifi_event_group)
-{
-    tcpip_adapter_init();
-    ESP_ERROR_CHECK( esp_event_loop_init(event_handler, wifi_event_group) );
-
-    wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
-    ESP_ERROR_CHECK( esp_wifi_init(&cfg) );
-
-    ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_FLASH) );
-    ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_STA) );
-    ESP_ERROR_CHECK( esp_wifi_start() );
-}
-
-
-
 static void alexa_task(void *pvParameters)
 {
     alexa_init();
@@ -99,41 +57,12 @@ static void alexa_task(void *pvParameters)
 }
 
 
-static void set_wifi_credentials()
-{
-    wifi_config_t current_config;
-    esp_wifi_get_config(WIFI_IF_STA, &current_config);
-
-    // no changes? return and save a bit of startup time
-    if(strcmp( (const char *) current_config.sta.ssid, WIFI_AP_NAME) == 0 &&
-       strcmp( (const char *) current_config.sta.password, WIFI_AP_PASS) == 0)
-    {
-        ESP_LOGI(TAG, "keeping wifi config: %s", WIFI_AP_NAME);
-        return;
-    }
-
-    // wifi config has changed, update
-    wifi_config_t wifi_config = {
-        .sta = {
-            .ssid = WIFI_AP_NAME,
-            .password = WIFI_AP_PASS,
-            .bssid_set = 0,
-        },
-    };
-
-    ESP_LOGI(TAG, "Setting WiFi configuration SSID %s...", wifi_config.sta.ssid);
-    esp_wifi_disconnect();
-    esp_wifi_set_config(WIFI_IF_STA, &wifi_config);
-    ESP_LOGI(TAG, "connecting");
-    esp_wifi_connect();
-}
-
 static void init_hardware()
 {
     nvs_flash_init();
 
     // init UI
-    // ui_init(GPIO_NUM_32);
+    ui_init(GPIO_NUM_32);
 
     //Initialize the SPI RAM chip communications and see if it actually retains some bytes. If it
     //doesn't, warn user.
@@ -155,7 +84,6 @@ static void start_wifi()
     /* init wifi */
     ui_queue_event(UI_CONNECTING);
     initialise_wifi(wifi_event_group);
-    set_wifi_credentials();
 
     /* start mDNS */
     // xTaskCreatePinnedToCore(&mdns_task, "mdns_task", 2048, wifi_event_group, 5, NULL, 0);
@@ -226,6 +154,8 @@ void app_main()
     start_wifi();
     //start_web_radio();
     // can't mix cores when allocating interrupts
+    renderer_init(create_renderer_config());
+    audio_recorder_init();
     xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 1);
 #endif
 
