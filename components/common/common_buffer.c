@@ -50,6 +50,20 @@ buffer_t *buf_create(size_t len)
     return buf;
 }
 
+/* wraps an existing buffer */
+buffer_t *buf_wrap(void *existing, size_t len)
+{
+    buffer_t* buf = calloc(1, sizeof(buffer_t));
+
+    buf->len = len;
+    buf->base = existing;
+    buf->read_pos = buf->base;
+    buf->fill_pos = buf->base;
+    buf->bytes_consumed = 0;
+
+    return buf;
+}
+
 /* free the buffer struct and its storage */
 int buf_destroy(buffer_t *buf)
 {
@@ -94,7 +108,6 @@ int buf_resize(buffer_t *buf, size_t new_size)
 
 size_t buf_write(buffer_t *buf, const void* from, size_t len)
 {
-    buf_move_remaining_bytes_to_front(buf);
     size_t bytes_to_write = min(buf_free_capacity(buf), len);
 
     if (bytes_to_write > 0) {

@@ -12,6 +12,8 @@
 
 #include "mbedtls/platform.h"
 #include "mbedtls/net.h"
+#include "mbedtls/ctr_drbg.h"
+#include "mbedtls/entropy.h"
 
 #include "http_parser.h"
 
@@ -23,7 +25,9 @@ typedef struct
     mbedtls_net_context *server_fd;
     /* only referenced here to simply cleanup */
     mbedtls_ssl_config *conf;
-} ssl_session_data;
+    mbedtls_ctr_drbg_context *ctr_drbg;
+    mbedtls_entropy_context *entropy;
+} ssl_session_data_t;
 
 
 /* the http2 session
@@ -35,7 +39,7 @@ typedef struct
     nghttp2_session *h2_session;
 
     /* underlying connection */
-    ssl_session_data *ssl_session;
+    ssl_session_data_t *ssl_session;
 
     /* current number of outgoing streams because
      * session_data->nghttp2_session->num_outgoing_streams is private

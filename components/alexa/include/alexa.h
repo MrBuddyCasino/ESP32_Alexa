@@ -21,6 +21,34 @@ void set_auth_token(alexa_session_t *alexa_session, char* access_token);
 
 void auth_token_refresh(alexa_session_t *alexa_session);
 
-int alexa_init();
+int net_send_event(alexa_session_t *alexa_session, nghttp2_data_source_read_callback read_callback);
+
+typedef enum {
+    CONN_CONNECTING, CONN_UNAUTHORIZED, CONN_OPEN, CONN_CLOSED
+} alexa_stream_status_t;
+
+typedef enum
+{
+    META_HEADERS, META_JSON, AUDIO_HEADERS, AUDIO_DATA, DONE
+} part_type_t;
+
+typedef enum {
+    STREAM_DOWNCHAN, STREAM_EVT
+} stream_type_t ;
+
+typedef struct
+{
+    stream_type_t stream_type;
+    alexa_session_t *alexa_session;
+    http2_session_data_t *http2_session;
+    int32_t stream_id;
+    alexa_stream_status_t status;
+    multipart_parser* m_parser;
+    part_type_t current_part;
+    part_type_t next_action;
+    uint8_t *file_pos;
+    uint16_t msg_id;
+    uint16_t dialog_req_id;
+} alexa_stream_t;
 
 #endif /* _INCLUDE_ALEXA_H_ */

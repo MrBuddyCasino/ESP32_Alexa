@@ -11,8 +11,8 @@
 #include "esp_log.h"
 #include "cJSON.h"
 
+#include "include/alexa_directive_handler.h"
 #include "web_radio.h"
-#include "directive_handler.h"
 
 #define TAG "directive_handler"
 

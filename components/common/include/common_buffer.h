@@ -30,6 +30,9 @@ typedef struct
 /* create a buffer on the heap */
 buffer_t *buf_create(size_t len);
 
+/* wraps an existing buffer */
+buffer_t *buf_wrap(void *existing, size_t len);
+
 /* free the backing storage, and the struct itself */
 int buf_destroy(buffer_t *buf);
 

@@ -232,13 +232,11 @@ exit:
     free(url);
     mbedtls_ssl_session_reset(&ssl);
     mbedtls_net_free(&server_fd);
-    /*
-    mbedtls_net_free( &server_fd );
+
     mbedtls_ssl_free( &ssl );
     mbedtls_ssl_config_free( &conf );
     mbedtls_ctr_drbg_free( &ctr_drbg );
     mbedtls_entropy_free( &entropy );
-     */
 
     if(ret != 0)
     {

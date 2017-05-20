@@ -1,7 +1,7 @@
 /*
- * json_proto.c
+ * events_context.c
  *
- *  Created on: 16.05.2017
+ *  Created on: 19.05.2017
  *      Author: michaelboeckling
  */
 
@@ -13,7 +13,6 @@
 #include <stdio.h>
 
 #include "cJSON.h"
-#include "alexa_messages.h"
 
 /*
  {
@@ -39,7 +38,7 @@
     }
 }
  */
-static cJSON* ctx_alerts_state()
+cJSON* ctx_alerts_state()
 {
     cJSON *root, *header, *payload;
 
@@ -69,7 +68,7 @@ static cJSON* ctx_alerts_state()
     }
 }
 */
-static cJSON* ctx_playback_state()
+cJSON* ctx_playback_state()
 {
     cJSON *root, *header, *payload;
 
@@ -99,7 +98,7 @@ static cJSON* ctx_playback_state()
     }
 }
 */
-static cJSON* ctx_volume_state()
+cJSON* ctx_volume_state()
 {
     cJSON *root, *header, *payload;
 
@@ -129,7 +128,7 @@ static cJSON* ctx_volume_state()
     }
 }
  */
-static cJSON* ctx_speech_synth_state()
+cJSON* ctx_speech_synth_state()
 {
     cJSON *root, *header, *payload;
 
@@ -158,7 +157,7 @@ static cJSON* ctx_speech_synth_state()
     }
 }
  */
-static cJSON* ctx_speech_recognizer_state()
+cJSON* ctx_speech_recognizer_state()
 {
     cJSON *root, *header, *payload;
 
@@ -174,81 +173,15 @@ static cJSON* ctx_speech_recognizer_state()
     return root;
 }
 
-static uint16_t msg_id = 1;
-static uint16_t dialog_req_id = 1;
-static char msg_id_buf[6];
-static char dialog_req_id_buf[6];
-
-/*
-    {
-      "context": [],
-      "event": {}
-    }
- */
-char* create_evt_recognize()
+cJSON *ctx_all_states()
 {
-    cJSON *root, *context, *event, *header, *payload, *context_obj, *initiator;
-    root = cJSON_CreateObject();
+    cJSON *context = cJSON_CreateArray();
 
-    /* context: component states */
-    cJSON_AddItemToObject(root, "context", context = cJSON_CreateArray());
     cJSON_AddItemToArray(context, ctx_alerts_state());
     cJSON_AddItemToArray(context, ctx_playback_state());
     cJSON_AddItemToArray(context, ctx_volume_state());
     cJSON_AddItemToArray(context, ctx_speech_synth_state());
     cJSON_AddItemToArray(context, ctx_speech_recognizer_state());
 
-
-    /*
-     * "event":{
-     */
-    cJSON_AddItemToObject(root, "event", event = cJSON_CreateObject());
-
-    /*
-     "header": {
-        "namespace": "SpeechRecognizer",
-        "name": "Recognize",
-        "messageId": "{{STRING}}",
-        "dialogRequestId": "{{STRING}}"
-    }
-     */
-    cJSON_AddItemToObject(event, "header", header = cJSON_CreateObject());
-    cJSON_AddStringToObject(header, "namespace", "SpeechRecognizer");
-    cJSON_AddStringToObject(header, "name", "Recognize");
-    snprintf(msg_id_buf, sizeof(msg_id_buf), "%u", msg_id++);
-    cJSON_AddStringToObject(header, "messageId", msg_id_buf);
-    snprintf(dialog_req_id_buf, sizeof(dialog_req_id_buf), "%u", dialog_req_id++);
-    cJSON_AddStringToObject(header, "dialogRequestId", dialog_req_id_buf);
-
-
-    /*
-     "payload": {
-      "profile": "{{STRING}}",
-      "format": "{{STRING}}",
-      "initiator": {
-        "type": "{{STRING}}",
-        "payload": {
-          "wakeWordIndices": {
-            "startIndexInSamples": {{LONG}},
-            "endIndexInSamples": {{LONG}}
-          }
-        }
-      }
-    }
-    */
-    cJSON_AddItemToObject(event, "payload", payload = cJSON_CreateObject());
-    // cJSON_AddStringToObject(payload, "profile", "CLOSE_TALK");
-    cJSON_AddStringToObject(payload, "profile", "NEAR_FIELD");
-    cJSON_AddStringToObject(payload, "format",
-            "AUDIO_L16_RATE_16000_CHANNELS_1");
-
-    cJSON_AddItemToObject(payload, "initiator", initiator = cJSON_CreateObject());
-    cJSON_AddStringToObject(initiator, "type", "TAP");
-
-    // char *rendered = cJSON_Print(root);
-    char *rendered = cJSON_PrintUnformatted(root);
-
-    cJSON_Delete(root);
-
-    return rendered;
+    return context;
 }

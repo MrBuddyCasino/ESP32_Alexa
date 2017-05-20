@@ -14,6 +14,8 @@
 #include "nghttp2/nghttp2.h"
 #include "nghttp2_client.h"
 #include "cJSON.h"
+#include "multipart_parser.h"
+
 #include "alexa.h"
 
 #define TAG "auth_handler"
@@ -65,7 +67,9 @@ int auth_on_stream_close_callback(nghttp2_session *session,
     cJSON *token_item = cJSON_GetObjectItem(root, "access_token");
     char *access_token = token_item->valuestring;
 
-    set_auth_token(alexa_session, access_token);
+    //alexa_session->auth_token = access_token;
+
+    set_auth_token(alexa_session, strdup(access_token));
 
     cJSON_Delete(root);
     free(buffer->buf);

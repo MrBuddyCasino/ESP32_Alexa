@@ -26,7 +26,7 @@
 #include "playerconfig.h"
 #include "wifi.h"
 #include "app_main.h"
-#include "alexa.h"
+#include "alexa_public.h"
 #include "mdns_task.h"
 #ifdef CONFIG_BT_SPEAKER_MODE
 #include "bt_speaker.h"
@@ -144,7 +144,7 @@ static void start_web_radio()
 void app_main()
 {
     ESP_LOGI(TAG, "starting app_main()");
-    ESP_LOGI(TAG, "RAM left: %u", esp_get_free_heap_size());
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
 
     init_hardware();
 
@@ -152,14 +152,17 @@ void app_main()
     bt_speaker_start(create_renderer_config());
 #else
     start_wifi();
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     //start_web_radio();
     // can't mix cores when allocating interrupts
     renderer_init(create_renderer_config());
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     audio_recorder_init();
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 1);
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
 #endif
 
-
-    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     // ESP_LOGI(TAG, "app_main stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    vTaskDelete(NULL);
 }

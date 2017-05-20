@@ -144,7 +144,7 @@ static esp_err_t alloc_http2_session_data(http2_session_data_t **session_data_pt
     return ESP_OK;
 }
 
-esp_err_t free_ssl_session_data(ssl_session_data *session, int32_t ret)
+esp_err_t free_ssl_session_data(ssl_session_data_t *session, int32_t ret)
 {
     if(session == NULL)
         return ESP_ERR_INVALID_ARG;
@@ -156,6 +156,10 @@ esp_err_t free_ssl_session_data(ssl_session_data *session, int32_t ret)
 
     mbedtls_net_free(session->server_fd);
     mbedtls_free(session->server_fd);
+
+    mbedtls_ssl_config_free(session->conf);
+    mbedtls_ctr_drbg_free(session->ctr_drbg);
+    mbedtls_entropy_free(session->entropy);
 
     free(session);
 
@@ -169,7 +173,7 @@ esp_err_t free_ssl_session_data(ssl_session_data *session, int32_t ret)
         free(buf);
     }
 
-    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     return ESP_OK;
 }
 
@@ -187,7 +191,7 @@ void free_http2_session_data(http2_session_data_t *session_data, int ret)
 
     free(session_data);
 
-    ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
 }
 
 static void print_header(const uint8_t *name, size_t namelen,
@@ -206,13 +210,13 @@ static void print_headers(nghttp2_nv *nva, size_t nvlen)
         print_header(nva[i].name, nva[i].namelen, nva[i].value,
                 nva[i].valuelen);
     }
-    ESP_LOGI(TAG, "");
+    printf("\n");
 }
 
 /* nghttp2_send_callback. Here we transmit the |data|, |length| bytes,
  to the network. */
 static ssize_t on_send_callback(nghttp2_session *session, const uint8_t *data,
-        size_t length, int flags, void *user_data)
+                                size_t length, int flags, void *user_data)
 {
 
     ssize_t ret;
@@ -462,9 +466,9 @@ static esp_err_t submit_request(http2_session_data_t *session_data,
 }
 
 
-esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
+esp_err_t alloc_ssl_session_data(ssl_session_data_t **session_ptr)
 {
-    *session_ptr = mbedtls_calloc(1, sizeof(ssl_session_data) );
+    *session_ptr = mbedtls_calloc(1, sizeof(ssl_session_data_t) );
     if(*session_ptr == NULL)
         return ESP_ERR_NO_MEM;
 
@@ -479,6 +483,14 @@ esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
     if((*session_ptr)->server_fd == NULL)
         return ESP_ERR_NO_MEM;
 
+    (*session_ptr)->entropy = mbedtls_calloc(1, sizeof(mbedtls_entropy_context) );
+    if((*session_ptr)->entropy == NULL)
+        return ESP_ERR_NO_MEM;
+
+    (*session_ptr)->ctr_drbg = mbedtls_calloc(1, sizeof(mbedtls_ctr_drbg_context) );
+    if((*session_ptr)->ctr_drbg == NULL)
+        return ESP_ERR_NO_MEM;
+
     return ESP_OK;
 }
 
@@ -486,7 +498,7 @@ esp_err_t alloc_ssl_session_data(ssl_session_data **session_ptr)
 /*
  * Make an encrypted TLS connection.
  */
-int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint16_t port)
+int32_t open_ssl_connection(ssl_session_data_t **ssl_session_ptr, char *host, uint16_t port)
 {
     int32_t ret;
 
@@ -496,13 +508,16 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
         return ret;
     }
 
-    ssl_session_data *ssl_session = (*ssl_session_ptr);
-    mbedtls_entropy_context entropy;
-    mbedtls_ctr_drbg_context ctr_drbg;
+    ssl_session_data_t *ssl_session = (*ssl_session_ptr);
+    mbedtls_entropy_context *entropy = ssl_session->entropy;
+    mbedtls_ctr_drbg_context *ctr_drbg = ssl_session->ctr_drbg;
     mbedtls_ssl_context *ssl_context = ssl_session->ssl_context;
+
     mbedtls_x509_crt cacert;
+
     mbedtls_ssl_config *conf = mbedtls_calloc(1, sizeof(mbedtls_ssl_config));
     ssl_session->conf = conf;
+
     mbedtls_net_context *server_fd = ssl_session->server_fd;
 
     // configure ALPN
@@ -515,13 +530,13 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
 
     mbedtls_ssl_init(ssl_context);
     mbedtls_x509_crt_init(&cacert);
-    mbedtls_ctr_drbg_init(&ctr_drbg);
+    mbedtls_ctr_drbg_init(ctr_drbg);
     ESP_LOGI(TAG, "Seeding the random number generator");
 
     mbedtls_ssl_config_init(conf);
 
-    mbedtls_entropy_init(&entropy);
-    ret = mbedtls_ctr_drbg_seed(&ctr_drbg, mbedtls_entropy_func, &entropy, NULL, 0);
+    mbedtls_entropy_init(entropy);
+    ret = mbedtls_ctr_drbg_seed(ctr_drbg, mbedtls_entropy_func, entropy, NULL, 0);
     if (ret != 0) {
         ESP_LOGE(TAG, "mbedtls_ctr_drbg_seed returned %d", ret);
         return ret;
@@ -580,7 +595,7 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
      */
     mbedtls_ssl_conf_authmode(conf, MBEDTLS_SSL_VERIFY_OPTIONAL);
     mbedtls_ssl_conf_ca_chain(conf, &cacert, NULL);
-    mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, &ctr_drbg);
+    mbedtls_ssl_conf_rng(conf, mbedtls_ctr_drbg_random, ctr_drbg);
 #ifdef MBEDTLS_DEBUG_C
     mbedtls_debug_set_threshold(MBEDTLS_DEBUG_LEVEL);
     mbedtls_ssl_conf_dbg(conf, mbedtls_debug, NULL);
@@ -659,7 +674,7 @@ int32_t open_ssl_connection(ssl_session_data **ssl_session_ptr, char *host, uint
 esp_err_t nghttp_new_connection(http2_session_data_t *http2_session, url_t *url)
 {
     int32_t ret;
-    ssl_session_data *ssl_session;
+    ssl_session_data_t *ssl_session;
 
     /* connect using tls */
     ret = open_ssl_connection(&ssl_session, url->host, url->port);
@@ -760,6 +775,8 @@ int read_write_loop(http2_session_data_t* http2_session)
 
     } while (ret >= 0 || ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE ||  MBEDTLS_ERR_SSL_TIMEOUT);
 
+    ESP_LOGW(TAG, "read_write_loop finished");
+
     return ret;
 }
 
@@ -807,13 +824,13 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     if((url = url_create(uri)) == NULL) {
         return -1;
     }
-
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     /* make ssl connection */
     if((ret = nghttp_new_connection(session_data, url) != 0)) {
         url_free(url);
         return ret;
     }
-
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     // register callbacks
     if((ret = register_session_callbacks(&session_data->h2_session, callbacks, session_data)) != 0) {
         url_free(url);
@@ -825,7 +842,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 
     // send client settings
     send_client_connection_header(session_data->h2_session);
-
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     if(((*stream_id) = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
     	url_free(url);
@@ -833,7 +850,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     }
 
     url_free(url);
-
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     return ret;
 }
 
