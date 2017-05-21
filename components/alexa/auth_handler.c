@@ -16,6 +16,7 @@
 #include "cJSON.h"
 #include "multipart_parser.h"
 
+#include "audio_player.h"
 #include "alexa.h"
 
 #define TAG "auth_handler"

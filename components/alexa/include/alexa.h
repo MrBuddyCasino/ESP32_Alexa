@@ -17,11 +17,13 @@
  */
 typedef struct alexa_session_struct_t alexa_session_t;
 
+
 void set_auth_token(alexa_session_t *alexa_session, char* access_token);
 
 void auth_token_refresh(alexa_session_t *alexa_session);
 
 int net_send_event(alexa_session_t *alexa_session, nghttp2_data_source_read_callback read_callback);
+
 
 typedef enum {
     CONN_CONNECTING, CONN_UNAUTHORIZED, CONN_OPEN, CONN_CLOSED
@@ -33,7 +35,7 @@ typedef enum
 } part_type_t;
 
 typedef enum {
-    STREAM_DOWNCHAN, STREAM_EVT
+    STREAM_DIRECTIVES, STREAM_EVENTS
 } stream_type_t ;
 
 typedef struct
@@ -44,11 +46,19 @@ typedef struct
     int32_t stream_id;
     alexa_stream_status_t status;
     multipart_parser* m_parser;
+    char *boundary;
     part_type_t current_part;
     part_type_t next_action;
     uint8_t *file_pos;
     uint16_t msg_id;
     uint16_t dialog_req_id;
 } alexa_stream_t;
+
+
+player_t *get_player_config(alexa_session_t *alexa_session);
+
+alexa_stream_t *get_stream_events(alexa_session_t *alexa_session);
+
+alexa_stream_t *get_stream_directives(alexa_session_t *alexa_session);
 
 #endif /* _INCLUDE_ALEXA_H_ */

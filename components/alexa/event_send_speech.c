@@ -16,8 +16,8 @@
 #include "nghttp2_client.h"
 
 #include "multipart_parser.h"
-#include "alexa.h"
 #include "audio_player.h"
+#include "alexa.h"
 #include "audio_recorder.h"
 #include "common_buffer.h"
 #include "alexa_events.h"
@@ -25,6 +25,19 @@
 
 #define TAG "event_send_speech"
 
+
+typedef enum {
+    SPEECH_IDLE = 0, SPEECH_RECOGNIZING, SPEECH_BUSY, SPEECH_EXPECTING
+} speech_recognizer_state_t;
+
+static speech_recognizer_state_t state;
+
+pcm_format_t buf_desc = {
+    .sample_rate = 16000,
+    .bit_depth = I2S_BITS_PER_SAMPLE_16BIT,
+    .num_channels = 1,
+    .buffer_format = PCM_LEFT_RIGHT
+};
 
 /* send data  */
 static bool yield = false;
@@ -120,7 +133,10 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             uint8_t *buf_ptr_write = buf;
 
             // read whole block of samples
-            int bytes_read = i2s_read_bytes(I2S_NUM_1, (char*) buf, buf_length, 0);
+            int bytes_read = 0;
+            while(bytes_read == 0) {
+                bytes_read = i2s_read_bytes(I2S_NUM_1, (char*) buf, buf_length, 0);
+            }
 
             //  convert 2x 32 bit stereo -> 1 x 16 bit mono
             int samples_read = bytes_read / 2 / (I2S_BITS_PER_SAMPLE_32BIT / 8);
@@ -135,16 +151,10 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             bytes_written = samples_read * (I2S_BITS_PER_SAMPLE_16BIT / 8);
 
             // local echo
-            pcm_format_t buf_desc = {
-                    .sample_rate = 16000,
-                    .bit_depth = I2S_BITS_PER_SAMPLE_16BIT,
-                    .num_channels = 1,
-                    .buffer_format = PCM_LEFT_RIGHT
-            };
             render_samples((char*) buf, bytes_written, &buf_desc);
 
             rounds++;
-            if(rounds > 5) {
+            if(rounds > 1) {
                 rounds = 0;
                 yield = true;
             }
@@ -156,6 +166,7 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             break;
 
         case DONE:
+            audio_recorder_stop();
             renderer_stop();
             ESP_LOGE(TAG, "DONE");
             //bytes_written = strlen(BOUNDARY_EOF);
@@ -183,3 +194,26 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
 
     return bytes_written;
 }
+
+
+void speech_recognizer_start_capture(alexa_session_t *alexa_session)
+{
+    state = SPEECH_RECOGNIZING;
+    renderer_start();
+    audio_recorder_start();
+
+    alexa_stream_t *stream_events = get_stream_events(alexa_session);
+    stream_events->next_action = META_HEADERS;
+    stream_events->file_pos = 0;
+    stream_events->current_part = META_HEADERS;
+
+    net_send_event(alexa_session, send_speech_read_callback);
+}
+
+void speech_recognizer_stop_capture(alexa_session_t *alexa_session)
+{
+    state = SPEECH_BUSY;
+    alexa_stream_t *stream_events = get_stream_events(alexa_session);
+    stream_events->next_action = DONE;
+}
+
