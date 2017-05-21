@@ -242,5 +242,7 @@ void libfaac_decoder_task(void *pvParameters)
     }
 
     NeAACDecClose(decoder);
+
+    vTaskDelete(NULL);
 }
 

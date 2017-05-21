@@ -702,7 +702,16 @@ int read_write_loop(http2_session_data_t* http2_session)
     uint8_t buf[1024];
     bzero(buf, sizeof(buf));
 
+    // Alexa will close the connection after 5 minutes of inactivity
+    time_t last_action;
+    time(&last_action);
+
     do {
+
+        if(difftime(time(NULL), last_action) > 4 * 60) {
+            nghttp2_submit_ping(h2, NGHTTP2_FLAG_NONE, NULL);
+            time(&last_action);
+        }
 
         if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
             // ESP_LOGE(TAG, "!nghttp2_session_want_write(session) && !nghttp2_session_want_read(session)");
@@ -717,8 +726,8 @@ int read_write_loop(http2_session_data_t* http2_session)
                 ESP_LOGE(TAG, "Fatal error: %s", nghttp2_strerror(ret));
                 break;
             }
-        } else {
-            // ESP_LOGI(TAG, "!nghttp2_session_want_write()");
+
+            time(&last_action);
         }
 
         // avoid blocking read
@@ -772,6 +781,7 @@ int read_write_loop(http2_session_data_t* http2_session)
             break;
         }
 
+        time(&last_action);
 
     } while (ret >= 0 || ret == MBEDTLS_ERR_SSL_WANT_READ || ret == MBEDTLS_ERR_SSL_WANT_WRITE ||  MBEDTLS_ERR_SSL_TIMEOUT);
 

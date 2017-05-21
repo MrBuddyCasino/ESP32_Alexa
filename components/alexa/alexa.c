@@ -35,6 +35,7 @@
 #include "event_send_state.h"
 #include "stream_handler_directives.h"
 #include "stream_handler_events.h"
+#include "sound_startup.h"
 
 /**
  * Hide struct members from the public
@@ -470,6 +471,8 @@ void alexa_gpio_handler_task(void *pvParams)
             speech_recognizer_start_capture(alexa_session);
         }
     }
+
+    vTaskDelete(NULL);
 }
 
 int alexa_init()
@@ -511,6 +514,7 @@ int alexa_init()
 
     // send voice
     // send_speech(alexa_session);
+    play_sound(alexa_session->player_config);
 
     // ESP_LOGI(TAG, "alexa_init stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 

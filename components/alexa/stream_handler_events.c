@@ -60,6 +60,12 @@ void handle_play_directive(cJSON *directive)
     cJSON *stream = cJSON_GetObjectItem(audioItem, "stream");
     cJSON *url = cJSON_GetObjectItem(stream, "url");
 
+    // inline audio
+    if(strncmp("cid", url->valuestring, 3) == 0)
+    {
+        return;
+    }
+
     ESP_LOGI(TAG, "playing url %s", url->valuestring);
     start_web_radio(strdup(url->valuestring));
 }

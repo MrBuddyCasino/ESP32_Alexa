@@ -159,6 +159,8 @@ void web_radio_gpio_handler_task(void *pvParams)
             }
         }
     }
+
+    vTaskDelete(NULL);
 }
 
 void web_radio_init(web_radio_t *config)

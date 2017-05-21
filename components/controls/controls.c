@@ -57,7 +57,7 @@ void controls_init(TaskFunction_t gpio_handler_task, const uint16_t usStackDepth
     params->user_data = user_data;
 
     //start gpio task
-    xTaskCreatePinnedToCore(gpio_handler_task, "gpio_handler_task", usStackDepth, params, 10, gpio_task, 0);
+    xTaskCreatePinnedToCore(gpio_handler_task, "gpio_handler_task", usStackDepth, params, 10, gpio_task, 1);
 
     //install gpio isr service
     gpio_install_isr_service(ESP_INTR_FLAG_DEFAULT);

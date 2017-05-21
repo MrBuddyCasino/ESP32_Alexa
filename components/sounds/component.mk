@@ -1,0 +1,2 @@
+
+COMPONENT_EMBED_FILES := coin.mp3
