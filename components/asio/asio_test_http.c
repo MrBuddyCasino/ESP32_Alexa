@@ -29,9 +29,9 @@ int cb_on_message_complete(http_parser* parser)
     asio_connection_t *conn = parser->data;
     if(http_should_keep_alive(parser)) {
         ESP_LOGE(TAG, "http_should_keep_alive");
-        conn->flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= CONN_FLAG_CLOSE;
     } else {
-        conn->flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= CONN_FLAG_CLOSE;
         ESP_LOGE(TAG, "! http_should_keep_alive");
     }
 
@@ -58,6 +58,7 @@ void start_asio_test()
     asio_registry_init(&registry, user_data);
 
     char *uri = "http://boeckling.net/";
+    uri = "https://news.ycombinator.com/";
     char *method = "GET";
     http_header_t headers[0];
     uint16_t header_len = 0;
@@ -76,7 +77,7 @@ void start_asio_test()
 
     asio_event_handler_t cb = asio_event_handler;
 
-    int ret = asio_http_request(registry, uri, method, headers, header_len, callbacks, cb, user_data);
+    int ret = asio_new_http_request(registry, uri, method, headers, header_len, callbacks, cb, user_data);
 
     while(1) {
         if(asio_registry_poll(registry) < 1)

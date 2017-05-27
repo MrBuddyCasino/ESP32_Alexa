@@ -21,14 +21,16 @@
 #define TAG "common"
 
 
-static void buf_move_remaining_bytes_to_front(buffer_t *buf)
+size_t buf_move_remaining_bytes_to_front(buffer_t *buf)
 {
     size_t unread_data = buf_data_unread(buf);
 
     // move remaining data to front
     memmove(buf->base, buf->read_pos, unread_data);
     buf->read_pos = buf->base;
-    buf->fill_pos = buf->base + unread_data;
+    buf->write_pos = buf->base + unread_data;
+
+    return buf_free_capacity(buf);
 }
 
 
@@ -44,7 +46,7 @@ buffer_t *buf_create(size_t len)
         return NULL;
     }
     buf->read_pos = buf->base;
-    buf->fill_pos = buf->base;
+    buf->write_pos = buf->base;
     buf->bytes_consumed = 0;
 
     return buf;
@@ -58,7 +60,7 @@ buffer_t *buf_wrap(void *existing, size_t len)
     buf->len = len;
     buf->base = existing;
     buf->read_pos = buf->base;
-    buf->fill_pos = buf->base;
+    buf->write_pos = buf->base;
     buf->bytes_consumed = 0;
 
     return buf;
@@ -101,46 +103,97 @@ int buf_resize(buffer_t *buf, size_t new_size)
     buf->len = new_size;
     buf->base = new_buf;
     buf->read_pos = buf->base + stale_bytes;
-    buf->fill_pos = buf->base + total_bytes;
+    buf->write_pos = buf->base + total_bytes;
 
     return 0;
+}
+
+int buf_drain(buffer_t *buf, int bytes)
+{
+    if(buf == NULL)
+        return -1;
+
+    if(bytes > buf_data_unread(buf))
+        return -1;
+
+    buf->read_pos += bytes;
+    buf->bytes_consumed += bytes;
+
+    return bytes;
+}
+
+size_t buf_drain_to(buffer_t *buf, void *to, size_t len)
+{
+    size_t to_drain = min(buf_data_unread(buf), len);
+    memcpy(to, buf->read_pos, to_drain);
+    buf->read_pos += to_drain;
+    buf->bytes_consumed += to_drain;
+
+    return to_drain;
+}
+
+int buf_fill(buffer_t *buf, int bytes)
+{
+    if(buf == NULL)
+        return -1;
+
+    if(bytes > buf_free_capacity(buf))
+        return -1;
+
+    buf->write_pos += bytes;
+
+    return bytes;
 }
 
 size_t buf_write(buffer_t *buf, const void* from, size_t len)
 {
     size_t bytes_to_write = min(buf_free_capacity(buf), len);
 
+    if(bytes_to_write == 0 && buf_free_capacity_after_purge(buf) > 0) {
+        bytes_to_write = min(buf_move_remaining_bytes_to_front(buf), len);
+    }
+
     if (bytes_to_write > 0) {
-        memcpy(buf->fill_pos, from, bytes_to_write);
-        buf->fill_pos += bytes_to_write;
+        memcpy(buf->write_pos, from, bytes_to_write);
+        buf->write_pos += bytes_to_write;
     }
 
     return bytes_to_write;
 }
 
-/* available unused capacity */
 size_t buf_free_capacity(buffer_t *buf)
 {
-    if(buf == NULL) return -1;
+    if(buf == NULL)
+        return -1;
 
-    size_t unused_capacity = (buf->base + buf->len) - buf->fill_pos;
-    return buf_data_stale(buf) + unused_capacity;
+    return (buf->base + buf->len) - buf->write_pos;
+}
+
+/* available unused capacity */
+size_t buf_free_capacity_after_purge(buffer_t *buf)
+{
+    if(buf == NULL)
+        return -1;
+
+    return buf_free_capacity(buf) + buf_data_stale(buf);
 }
 
 /* amount of bytes unread */
 size_t buf_data_total(buffer_t *buf)
 {
-    if(buf == NULL) return -1;
+    if(buf == NULL)
+        return -1;
 
-    return buf->fill_pos - buf->base;
+    return buf->write_pos - buf->base;
 }
 
 /* amount of bytes unread */
 size_t buf_data_unread(buffer_t *buf)
 {
-    if(buf == NULL) return -1;
+    if(buf == NULL)
+        return -1;
 
-    return buf->fill_pos - buf->read_pos;
+    return buf->write_pos - buf->read_pos;
 }
 
 /* amount of bytes already consumed */
@@ -152,15 +205,14 @@ size_t buf_data_stale(buffer_t *buf)
 }
 
 
-
 size_t fill_read_buffer(buffer_t *buf)
 {
     buf_move_remaining_bytes_to_front(buf);
-    size_t bytes_to_read = min(buf_free_capacity(buf), spiRamFifoFill());
+    size_t bytes_to_read = min(buf_free_capacity_after_purge(buf), spiRamFifoFill());
 
     if (bytes_to_read > 0) {
-        spiRamFifoRead((char *) buf->fill_pos, bytes_to_read);
-        buf->fill_pos += bytes_to_read;
+        spiRamFifoRead((char *) buf->write_pos, bytes_to_read);
+        buf->write_pos += bytes_to_read;
     }
 
     return bytes_to_read;
@@ -195,8 +247,8 @@ int buf_seek_abs(buffer_t *buf, uint32_t pos)
 {
     if (buf == NULL) return -1;
 
-    if(pos > buf->fill_pos) {
-        ESP_LOGE(TAG, "buf_seek_abs failed, pos = %u larger than fill_pos %u", pos, (uint32_t) buf->fill_pos);
+    if(pos > buf->write_pos) {
+        ESP_LOGE(TAG, "buf_seek_abs failed, pos = %u larger than fill_pos %u", pos, (uint32_t) buf->write_pos);
         return -1;
     }
 

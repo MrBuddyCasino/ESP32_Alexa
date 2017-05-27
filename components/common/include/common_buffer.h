@@ -22,7 +22,7 @@ typedef struct
 {
     uint8_t *base;
     uint8_t *read_pos;
-    uint8_t *fill_pos;
+    uint8_t *write_pos;
     uint16_t len;
     uint32_t bytes_consumed;
 } buffer_t;
@@ -39,6 +39,15 @@ int buf_destroy(buffer_t *buf);
 /* resize the buffer via realloc() */
 int buf_resize(buffer_t *buf, size_t new_size);
 
+/* subtract consumed bytes */
+int buf_drain(buffer_t *buf, int bytes);
+
+/* transfer unread bytes to different buffer */
+size_t buf_drain_to(buffer_t *buf, void *to, size_t len);
+
+/* add written bytes */
+int buf_fill(buffer_t *buf, int bytes);
+
 /**
  * Seek from the current position of the pointer.
  */
@@ -46,8 +55,14 @@ int buf_seek_rel(buffer_t *buf, uint32_t pos);
 
 int buf_seek_abs(buffer_t *buf, uint32_t pos);
 
-/* available unused capacity */
+/* purge stale read bytes, returns free capacity */
+size_t buf_move_remaining_bytes_to_front(buffer_t *buf);
+
+/* available unused capacity, excluding stale bytes */
 size_t buf_free_capacity(buffer_t *buf);
+
+/* available unused capacity, including stale bytes */
+size_t buf_free_capacity_after_purge(buffer_t *buf);
 
 /* total amount of data in the buffer */
 size_t buf_data_total(buffer_t *buf);
