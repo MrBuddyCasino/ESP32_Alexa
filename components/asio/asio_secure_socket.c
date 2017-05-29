@@ -608,11 +608,11 @@ typedef struct {
 } ssl_proto_ctx_t;
 
 
-asio_cb_res_t asio_ssl_handle_connect(asio_connection_t *conn, asio_event_t event, void *user_data)
+asio_cb_res_t asio_ssl_connect(asio_connection_t *conn, asio_event_t event)
 {
     ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
 
-    if(proto_ctx->delegate_io_handler(conn, event, user_data) != ASIO_CB_OK) {
+    if(proto_ctx->delegate_io_handler(conn, event) != ASIO_CB_OK) {
         return ASIO_CB_CLOSE_CONNECTION;
     }
 
@@ -859,8 +859,9 @@ asio_cb_res_t asio_ssl_handle_connect(asio_connection_t *conn, asio_event_t even
     return ASIO_CB_OK;
 }
 
-asio_cb_res_t asio_ssl_handle_close(asio_connection_t *conn, asio_event_t event, void *user_data)
+asio_cb_res_t asio_ssl_close(asio_connection_t *conn)
 {
+    ESP_LOGI(TAG, "asio_ssl_handle_close");
     ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
 
     xfree(proto_ctx->cc);
@@ -880,24 +881,28 @@ asio_cb_res_t asio_ssl_handle_close(asio_connection_t *conn, asio_event_t event,
     xfree(proto_ctx->dnhash);
     xfree(proto_ctx->anchors);
 
+    /* free delegate resources */
+    proto_ctx->delegate_io_handler(conn, ASIO_EVT_CLOSE);
+
     return ASIO_CB_OK;
 }
 
+
 /* see brssl.h */
 int
-run_ssl_engine_xx(asio_connection_t *conn)
+asio_ssl_run_engine(asio_connection_t *conn)
 {
-    ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
-    br_ssl_engine_context *cc = &proto_ctx->cc->eng;
+    ssl_proto_ctx_t *io_ctx = conn->io_ctx;
+    br_ssl_engine_context *cc = &io_ctx->cc->eng;
 
-    int verbose = proto_ctx->verbose;
-    int trace = proto_ctx->trace;
+    int verbose = io_ctx->verbose;
+    int trace = io_ctx->trace;
 
-    /*
-     * Print algorithm details.
-     */
-    if (verbose && !proto_ctx->hsdetails) {
-        print_algos(cc);
+    /* poll socket */
+    if(conn->poll_handler(conn) == ASIO_POLL_ERR) {
+        ESP_LOGE(TAG, "poll failed");
+        conn->user_flags |= CONN_FLAG_CLOSE;
+        return 0;
     }
 
     /*
@@ -913,6 +918,7 @@ run_ssl_engine_xx(asio_connection_t *conn)
     st = br_ssl_engine_current_state(cc);
     if (st == BR_SSL_CLOSED) {
         handle_closed(verbose, cc);
+        conn->user_flags |= CONN_FLAG_CLOSE;
         return ASIO_CB_CLOSE_CONNECTION;
     }
 
@@ -925,9 +931,9 @@ run_ssl_engine_xx(asio_connection_t *conn)
     sendapp = ((st & BR_SSL_SENDAPP) != 0);
     recvapp = ((st & BR_SSL_RECVAPP) != 0);
 
-    if (verbose && sendapp && !proto_ctx->hsdetails) {
+    if (verbose && sendapp && !io_ctx->hsdetails) {
         print_handshake_result(cc);
-        proto_ctx->hsdetails = 1;
+        io_ctx->hsdetails = 1;
     }
 
     /*
@@ -943,10 +949,10 @@ run_ssl_engine_xx(asio_connection_t *conn)
     }
     */
 
-    recvapp_ok = recvapp && (buf_free_capacity_after_purge(conn->recv_buf) > 0);
+    recvapp_ok = recvapp;
     sendrec_ok = sendrec && (conn->poll_flags & POLL_FLAG_SEND);
     recvrec_ok = recvrec && (conn->poll_flags & POLL_FLAG_RECV);
-    sendapp_ok = sendapp && (buf_data_unread(conn->send_buf) > 0);
+    sendapp_ok = sendapp;
 
     // ESP_LOGI(TAG, "recvapp_ok %d sendrec_ok %d recvrec_ok %d sendapp_ok %d", recvapp_ok, sendrec_ok, recvrec_ok, sendapp_ok);
 
@@ -954,17 +960,29 @@ run_ssl_engine_xx(asio_connection_t *conn)
      * We give preference to outgoing data, on stdout and on
      * the socket.
      */
+
+    /* write app data */
     if (recvapp_ok) {
         unsigned char *buf;
         size_t len;
         ssize_t wlen;
 
         buf = br_ssl_engine_recvapp_buf(cc, &len);
-        wlen = buf_write(conn->recv_buf, buf, len);
-        // ESP_LOGI(TAG, "wrote %d bytes to recv_buf", wlen);
-        br_ssl_engine_recvapp_ack(cc, wlen);
+        // write directly to upper proto
+        wlen = conn->app_recv(conn, buf, len);
+        if(wlen >= 0) {
+            br_ssl_engine_recvapp_ack(cc, wlen);
+        } else {
+            br_ssl_engine_recvapp_ack(cc, 0);
+            ESP_LOGI(TAG, "app_recv error");
+        }
+
+        if(trace) {
+            ESP_LOGI(TAG, "wrote %d bytes to app", wlen);
+        }
     }
 
+    /* write to socket */
     if (sendrec_ok) {
         unsigned char *buf;
         size_t len;
@@ -972,6 +990,9 @@ run_ssl_engine_xx(asio_connection_t *conn)
 
         buf = br_ssl_engine_sendrec_buf(cc, &len);
         wlen = send(conn->fd, buf, len, 0);
+        if(trace) {
+            ESP_LOGI(TAG, "wrote %d bytes to socket", wlen);
+        }
         if (wlen <= 0) {
 
             if (errno == EINTR || errno == EWOULDBLOCK) {
@@ -981,6 +1002,7 @@ run_ssl_engine_xx(asio_connection_t *conn)
             if (verbose) {
                 fprintf(stderr, "socket closed...\n");
             }
+            conn->user_flags |= CONN_FLAG_CLOSE;
             return ASIO_CB_CLOSE_CONNECTION;
         }
         if (trace) {
@@ -989,6 +1011,7 @@ run_ssl_engine_xx(asio_connection_t *conn)
         br_ssl_engine_sendrec_ack(cc, wlen);
     }
 
+    /* read from socket */
     if (recvrec_ok) {
         unsigned char *buf;
         size_t len;
@@ -996,16 +1019,21 @@ run_ssl_engine_xx(asio_connection_t *conn)
 
         buf = br_ssl_engine_recvrec_buf(cc, &len);
         rlen = recv(conn->fd, buf, len, 0);
+        if(trace) {
+            ESP_LOGI(TAG, "read %d bytes from socket", rlen);
+        }
         if (rlen <= 0) {
 
             if (errno == EINTR || errno == EWOULDBLOCK) {
                 // OK
+                ESP_LOGI(TAG, "EINTR || EWOULDBLOCK");
             }
 
             if (verbose) {
                 fprintf(stderr, "socket closed...\n");
             }
 
+            conn->user_flags |= CONN_FLAG_CLOSE;
             return ASIO_CB_CLOSE_CONNECTION;
         }
         if (trace) {
@@ -1014,18 +1042,22 @@ run_ssl_engine_xx(asio_connection_t *conn)
         br_ssl_engine_recvrec_ack(cc, rlen);
     }
 
+    /* read app data */
+
     if (sendapp_ok) {
         unsigned char *buf;
         size_t len;
         ssize_t rlen;
 
         buf = br_ssl_engine_sendapp_buf(cc, &len);
-        rlen = buf_drain_to(conn->send_buf, buf, len);
-        // rlen = read(0, buf, len);
+        rlen = conn->app_send(conn, buf, len);
+        if(trace) {
+            ESP_LOGI(TAG, "read %d bytes from app:\n%.*s", rlen, rlen, buf);
+        }
 
-        if (rlen <= 0) {
+        if (rlen < 0) {
             if (verbose) {
-                fprintf(stderr, "stdin closed...\n");
+                fprintf(stderr, "app closed...\n");
             }
             br_ssl_engine_close(cc);
         } else if (!run_command(cc, buf, rlen)) {
@@ -1037,22 +1069,22 @@ run_ssl_engine_xx(asio_connection_t *conn)
     return ASIO_CB_OK;
 }
 
-asio_cb_res_t asio_io_handler_ssl(asio_connection_t *conn, asio_event_t event, void *user_data)
+asio_cb_res_t asio_io_handler_ssl(asio_connection_t *conn, asio_event_t event)
 {
     switch (event) {
         case ASIO_EVT_NEW:
-            asio_ssl_handle_connect(conn, event, user_data);
+            return asio_ssl_connect(conn, event);
             break;
 
         case ASIO_EVT_CONNECTED:
             break;
 
         case ASIO_EVT_SOCKET_READY:
-            return run_ssl_engine_xx(conn);
+            return asio_ssl_run_engine(conn);
             break;
 
         case ASIO_EVT_CLOSE:
-            return asio_ssl_handle_close(conn, event, user_data);
+            return asio_ssl_close(conn);
             break;
     }
 
@@ -1060,31 +1092,36 @@ asio_cb_res_t asio_io_handler_ssl(asio_connection_t *conn, asio_event_t event, v
 }
 
 
-asio_connection_t *asio_new_ssl_connection(asio_registry_t *registry, char *uri, int bidi, char *alpn, cipher_suite *suites, size_t num_suites, void *user_data)
+asio_connection_t *asio_new_ssl_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, int bidi, char *alpn, cipher_suite *suites, size_t num_suites, void *user_data)
 {
 
     asio_connection_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
 
-    ssl_proto_ctx_t *proto_ctx = calloc(1, sizeof(ssl_proto_ctx_t));
-    conn->io_ctx = proto_ctx;
+    ssl_proto_ctx_t *io_ctx = calloc(1, sizeof(ssl_proto_ctx_t));
+    conn->io_ctx = io_ctx;
 
     // chain io handler
-    proto_ctx->delegate_io_handler = conn->io_handler;
+    io_ctx->delegate_io_handler = conn->io_handler;
     conn->io_handler = asio_io_handler_ssl;
-    conn->is_buffered = true;
 
-    proto_ctx->verbose = 1;
-    proto_ctx->trace = 0;
-    proto_ctx->cc = calloc(1, sizeof(*(proto_ctx->cc)));
-    proto_ctx->zc = calloc(1, sizeof(*(proto_ctx->zc)));
-    proto_ctx->xc = calloc(1, sizeof(*(proto_ctx->xc)));
-    proto_ctx->xwc = calloc(1, sizeof(*(proto_ctx->xwc)));
-    proto_ctx->bidi = bidi;
-    //proto_ctx->alpn_names = calloc(1, sizeof(VECTOR(char *)));
+    io_ctx->verbose = 1;
+    io_ctx->trace = 0;
+    io_ctx->cc = calloc(1, sizeof(*(io_ctx->cc)));
+    io_ctx->zc = calloc(1, sizeof(*(io_ctx->zc)));
+    io_ctx->xc = calloc(1, sizeof(*(io_ctx->xc)));
+    io_ctx->xwc = calloc(1, sizeof(*(io_ctx->xwc)));
+    io_ctx->bidi = bidi;
     if(alpn != NULL)
-        VEC_ADD(proto_ctx->alpn_names, xstrdup(alpn));
+        VEC_ADD(io_ctx->alpn_names, xstrdup(alpn));
 
-    proto_ctx->anchors = calloc(1, sizeof(*(proto_ctx->anchors)));
+    io_ctx->anchors = calloc(1, sizeof(*(io_ctx->anchors)));
+
+    /*
+     * Print algorithm details.
+     */
+    if (io_ctx->verbose) {
+        print_algos(&io_ctx->cc->eng);
+    }
 
     return conn;
 }

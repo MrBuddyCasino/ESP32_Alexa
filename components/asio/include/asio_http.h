@@ -15,4 +15,6 @@ typedef struct {
 
 int asio_new_http_request(asio_registry_t *registry, char *uri, char *method, http_header_t headers[], uint16_t header_len, http_parser_settings *callbacks, asio_event_handler_t cb, void *user_data);
 
+void asio_test_http();
+
 #endif /* _INCLUDE_ASIO_PROTO_H_ */

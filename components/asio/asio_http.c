@@ -18,8 +18,8 @@
 #include "brssl.h"
 
 #include "asio.h"
-#include "asio_proto.h"
 #include "asio_socket.h"
+#include "asio_http.h"
 
 #define TAG "asio_http"
 
@@ -35,28 +35,26 @@ typedef struct {
 
 
 /* socket connected, write http request */
-asio_cb_res_t asio_http_handle_connect(asio_connection_t *conn, void *user_data)
+size_t asio_http_write_request(asio_connection_t *conn, unsigned char* buf, size_t len)
 {
-    ESP_LOGW(TAG, "asio_http_handle_connect()");
     http_proto_ctx_t *proto_ctx = conn->proto_ctx;
 
     // TODO: headers
 
-    int chars_written = snprintf((char*)conn->send_buf->write_pos, buf_free_capacity(conn->send_buf), "%s %s%s%s%s",
+    int wlen = snprintf((char*)buf, len, "%s %s%s%s%s",
             proto_ctx->method, conn->url->path, " HTTP/1.1\r\nHost: ", conn->url->host, "\r\n\r\n");
 
-    if(chars_written >= 0 && chars_written < buf_free_capacity(conn->send_buf)) {
+    if(wlen >= 0 && wlen < len) {
         // OK
-        buf_fill(conn->send_buf, chars_written);
-        ESP_LOGI(TAG, "%.*s", chars_written, conn->send_buf->read_pos);
+        ESP_LOGI(TAG, "%.*s", wlen, buf);
     } else {
         ESP_LOGE(TAG, "error writing request: %s", conn->url->host);
     }
 
-    return ASIO_CB_OK;
+    return wlen;
 }
 
-asio_cb_res_t asio_http_handle_close(asio_connection_t *conn, void *user_data)
+asio_cb_res_t asio_http_handle_close(asio_connection_t *conn)
 {
     // ESP_LOGI(TAG, "destroying http_proto_ctx_t");
     if(conn->proto_ctx != NULL) {
@@ -70,48 +68,66 @@ asio_cb_res_t asio_http_handle_close(asio_connection_t *conn, void *user_data)
     return ASIO_CB_OK;
 }
 
-asio_cb_res_t asio_http_handle_data_recv(asio_connection_t *conn, void *user_data)
+
+/* send received bytes to http parser */
+static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
 {
     http_proto_ctx_t *proto_ctx = conn->proto_ctx;
 
-    // TODO: send?
-
-    if(buf_data_unread(conn->recv_buf) == 0)
-        return ASIO_CB_OK;
-
     // process received
     int nparsed = http_parser_execute(proto_ctx->parser, proto_ctx->callbacks,
-            (char*)conn->recv_buf->read_pos, buf_data_unread(conn->recv_buf));
+            (const char*)buf, len);
 
-    // ESP_LOGI(TAG, "asio_http_handle_data_recv(), buf_data_unread=%d, nparsed=%d", buf_data_unread(conn->recv_buf), nparsed);
-
-    if(nparsed >= 0)
-    {
-        buf_drain(conn->recv_buf, nparsed);
-        return ASIO_CB_OK;
-    } else
+    if(nparsed < 0)
     {
         ESP_LOGE(TAG, "http_parser_execute() error: %d", nparsed);
+        conn->user_flags |= CONN_FLAG_CLOSE;
         return ASIO_CB_ERR;
     }
+
+    return nparsed;
 }
 
-asio_cb_res_t asio_proto_handler_http(asio_connection_t *conn, asio_event_t event, void *user_data)
+typedef enum {
+    HTTP_IDLE, HTTP_HEADERS_SENT
+} http_state_t;
+
+static http_state_t http_status = HTTP_IDLE;
+
+/* read bytes from app */
+static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
+{
+    size_t wlen = 0;
+    switch(http_status)
+    {
+        case HTTP_IDLE:
+            wlen = asio_http_write_request(conn, buf, len);
+            http_status = HTTP_HEADERS_SENT;
+            break;
+
+        case HTTP_HEADERS_SENT:
+            // TODO
+            break;
+    }
+
+    return wlen;
+}
+
+asio_cb_res_t asio_proto_handler_http(asio_connection_t *conn, asio_event_t event)
 {
     switch (event) {
         case ASIO_EVT_NEW:
+            http_status = HTTP_IDLE;
             break;
 
         case ASIO_EVT_CONNECTED:
-            asio_http_handle_connect(conn, user_data);
-            break;
-
-        case ASIO_EVT_CLOSE:
-            asio_http_handle_close(conn, user_data);
             break;
 
         case ASIO_EVT_SOCKET_READY:
-            return asio_http_handle_data_recv(conn, user_data);
+            break;
+
+        case ASIO_EVT_CLOSE:
+            asio_http_handle_close(conn);
             break;
     }
 
@@ -129,7 +145,7 @@ int asio_new_http_request(asio_registry_t *registry, char *uri, char *method, ht
         char *alpn = NULL;
         cipher_suite *suites = NULL;
         size_t num_suites = 0;
-        conn = asio_new_ssl_connection(registry, uri, bidi, alpn, suites, num_suites, user_data);
+        conn = asio_new_ssl_connection(registry, ASIO_TCP_SSL, uri, bidi, alpn, suites, num_suites, user_data);
     }
     else if(starts_with(uri, "http://"))
     {
@@ -142,6 +158,8 @@ int asio_new_http_request(asio_registry_t *registry, char *uri, char *method, ht
 
     conn->evt_handler = cb;
     conn->proto_handler = asio_proto_handler_http;
+    conn->app_recv = asio_app_recv_cb;
+    conn->app_send = asio_app_send_cb;
 
     http_proto_ctx_t *proto_ctx = calloc(1, sizeof(http_proto_ctx_t));
     conn->proto_ctx = proto_ctx;

@@ -102,24 +102,27 @@ static char* url_get_path(struct http_parser_url *url, char *uri)
 }
 
 
-url_t *url_create(char *uri)
+url_t *url_parse(char *uri)
 {
-    struct http_parser_url *url_parser = calloc(1, sizeof(struct http_parser_url));
+    url_t *url = NULL;
+    struct http_parser_url *url_parser;
+
+    url_parser = calloc(1, sizeof(struct http_parser_url));
     if(url_parser == NULL) {
         ESP_LOGE(TAG, "could not allocate http_parser_url");
-        return NULL;
+        goto error;
     }
 
-    int ret = http_parser_parse_url(uri, strlen(uri), 0, url_parser);
-    if (ret != 0) {
+    if (http_parser_parse_url(uri, strlen(uri), 0, url_parser) != 0)
+    {
         ESP_LOGE(TAG, "Could not parse URI %s", uri);
-        return NULL;
+        goto error;
     }
 
-    url_t *url = calloc(1, sizeof(url_t));
-    if(url_parser == NULL) {
+    url = calloc(1, sizeof(url_t));
+    if(url == NULL) {
         ESP_LOGE(TAG, "could not allocate url_t");
-        return NULL;
+        goto error;
     }
 
     url->scheme = url_get_scheme(url_parser, uri);
@@ -128,13 +131,19 @@ url_t *url_create(char *uri)
     url->authority = url_get_authority(url_parser, uri);
     url->path = url_get_path(url_parser, uri);
 
-    free(url_parser);
-
     return url;
+
+    error:
+
+    free(url_parser);
+    url_free(url);
+
+    return NULL;
 }
 
 void url_free(url_t *url)
 {
+    if(url == NULL) return;
     if(url->scheme != NULL) free(url->scheme);
     if(url->host != NULL) free(url->host);
     if(url->authority != NULL) free(url->authority);

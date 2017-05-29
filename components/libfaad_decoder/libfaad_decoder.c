@@ -51,7 +51,7 @@ size_t skipID3(uint8_t *sd_buf)
 
 void print_buffer(buffer_t *buf)
 {
-    size_t data_left = buf->fill_pos - buf->read_pos;
+    size_t data_left = buf->write_pos - buf->read_pos;
     size_t space_left = buf->len - data_left;
     ESP_LOGI(TAG, "fill %d capacity %d", data_left, space_left);
 }
@@ -122,7 +122,7 @@ void libfaac_decoder_task(void *pvParameters)
     };
     buf.base = calloc(FAAD_BYTE_BUFFER_SIZE, sizeof(uint8_t));
     buf.read_pos = buf.base;
-    buf.fill_pos = buf.base;
+    buf.write_pos = buf.base;
 
     /* Clean and initialize decoder structures */
     memset(&demux_res, 0, sizeof(demux_res));
@@ -130,7 +130,7 @@ void libfaac_decoder_task(void *pvParameters)
     stream_create(&input_stream, &buf);
     fill_read_buffer(&buf);
 
-    //for(uint8_t *i = buf.read_pos; i < buf.fill_pos; i++)
+    //for(uint8_t *i = buf.read_pos; i < buf.write_pos; i++)
     //    printf("%X", (*i));
 
     content_type_t content_type =  player->media_stream->content_type;
@@ -219,7 +219,7 @@ void libfaac_decoder_task(void *pvParameters)
 
         /* Decode one block - returned samples will be host-endian */
         ret = NeAACDecDecode(decoder, &frame_info, buf.read_pos,
-                buf.fill_pos - buf.read_pos);
+                buf.write_pos - buf.read_pos);
 
         /* NeAACDecDecode may sometimes return NULL without setting error. */
         if (ret == NULL || frame_info.error > 0) {

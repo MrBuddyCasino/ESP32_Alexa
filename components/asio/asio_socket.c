@@ -125,7 +125,7 @@ int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
 }
 
 /* perform direct I/O to/from socket to buffers */
-asio_cb_res_t asio_io_cb_socket(asio_connection_t *conn)
+asio_cb_res_t asio_socket_ready(asio_connection_t *conn)
 {
     /* send */
 
@@ -189,7 +189,7 @@ asio_cb_res_t asio_io_cb_socket(asio_connection_t *conn)
 }
 
 
-asio_poll_res_t asio_poll_socket(asio_connection_t *conn)
+asio_poll_res_t asio_socket_poll(asio_connection_t *conn)
 {
     // reset flags
     conn->poll_flags = 0;
@@ -237,9 +237,15 @@ asio_poll_res_t asio_poll_socket(asio_connection_t *conn)
     return ASIO_POLL_OK;
 }
 
+void asio_socket_free(asio_connection_t *conn)
+{
+    close(conn->fd);
+    buf_destroy(conn->recv_buf);
+    buf_destroy(conn->send_buf);
+}
 
 
-asio_cb_res_t asio_io_handler_socket(asio_connection_t *conn, asio_event_t event, void *user_data)
+asio_cb_res_t asio_socket_event(asio_connection_t *conn, asio_event_t event)
 {
     switch (event) {
         case ASIO_EVT_NEW:
@@ -251,18 +257,18 @@ asio_cb_res_t asio_io_handler_socket(asio_connection_t *conn, asio_event_t event
             }
             conn->fd = fd;
             conn->state = ASIO_CONN_CONNECTED;
-            conn->poll_handler = asio_poll_socket;
+            conn->poll_handler = asio_socket_poll;
             break;
 
         case ASIO_EVT_CONNECTED:
             break;
 
         case ASIO_EVT_CLOSE:
-            close(conn->fd);
+            asio_socket_free(conn);
             break;
 
         case ASIO_EVT_SOCKET_READY:
-            return asio_io_cb_socket(conn);
+            return asio_socket_ready(conn);
             break;
     }
 
@@ -287,10 +293,14 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
     conn->user_data = user_data;
     conn->transport = transport_proto;
     conn->fd = -1;
-    conn->io_handler = asio_io_handler_socket;
+    conn->io_handler = asio_socket_event;
     conn->state = ASIO_CONN_NEW;
-    conn->send_buf = buf_create(512);
-    conn->recv_buf = buf_create(512 * 8);
+
+    /* ssl has its own buffers */
+    if(transport_proto != ASIO_TCP_SSL) {
+        conn->send_buf = buf_create(1024);
+        conn->recv_buf = buf_create(1024);
+    }
 
     if(asio_registry_add_connection(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
@@ -300,5 +310,3 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
 
     return conn;
 }
-
-

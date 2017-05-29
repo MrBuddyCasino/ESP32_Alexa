@@ -408,7 +408,8 @@ int open_downchannel(alexa_session_t *alexa_session)
 
     ret = nghttp_new_session(&http2_session, uri_directives, "GET",
             &alexa_session->stream_directives->stream_id, hdrs, 1,
-            NULL, callbacks, alexa_session->stream_directives, alexa_session);
+            NULL, callbacks,
+            alexa_session->stream_directives, alexa_session);
     if (ret != 0) {
         free_http2_session_data(http2_session, ret);
         return ret;

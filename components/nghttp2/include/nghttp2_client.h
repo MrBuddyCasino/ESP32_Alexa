@@ -18,6 +18,14 @@
 #include "http_parser.h"
 
 
+#ifndef max
+#define max(a, b) (((a) > (b)) ? (a) : (b))
+#endif
+#ifndef min
+#define min(a, b) (((a) < (b)) ? (a) : (b))
+#endif
+
+
 /* underlying ssl connection */
 typedef struct
 {
@@ -40,6 +48,9 @@ typedef struct
 
     /* underlying connection */
     ssl_session_data_t *ssl_session;
+
+    /* underlying connection */
+    void *conn;
 
     /* current number of outgoing streams because
      * session_data->nghttp2_session->num_outgoing_streams is private

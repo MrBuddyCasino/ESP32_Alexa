@@ -8,5 +8,4 @@
 #ifndef MAIN_INCLUDE_APP_MAIN_H_
 #define MAIN_INCLUDE_APP_MAIN_H_
 
-
 #endif /* MAIN_INCLUDE_APP_MAIN_H_ */

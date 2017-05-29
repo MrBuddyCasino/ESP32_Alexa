@@ -74,10 +74,8 @@ void asio_registry_remove_connection(asio_connection_t *conn)
     }
 
     free(conn->proto_ctx);
+    free(conn->io_ctx);
     url_free(conn->url);
-    close(conn->fd);
-    buf_destroy(conn->recv_buf);
-    buf_destroy(conn->send_buf);
     free(conn);
 }
 
@@ -89,15 +87,18 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
     switch (conn->state)
     {
         case ASIO_CONN_NEW:
-            conn->io_handler(conn, ASIO_EVT_NEW, registry->user_data);
+            // connect, currently synchronous
+            conn->io_handler(conn, ASIO_EVT_NEW);
 
             // notify proto
             if(conn->proto_handler) {
-                conn->proto_handler(conn, ASIO_EVT_CONNECTED, registry->user_data);
+                conn->proto_handler(conn, ASIO_EVT_CONNECTED);
             }
 
             // notify user
-            conn->evt_handler(conn, ASIO_EVT_CONNECTED, registry->user_data);
+            if(conn->evt_handler) {
+                conn->evt_handler(conn, ASIO_EVT_CONNECTED);
+            }
 
             break;
 
@@ -106,46 +107,46 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
 
         case ASIO_CONN_CONNECTED:
             ;
-            asio_poll_res_t poll_res = conn->poll_handler(conn);
-            switch(poll_res)
-            {
-                case ASIO_POLL_OK:
-                    if(conn->poll_flags > 0)
-                    {
-                        // perform I/O
-                        if(conn->io_handler(conn, ASIO_EVT_SOCKET_READY, registry->user_data) != ASIO_CB_OK) {
-                            // TODO
-                            ESP_LOGE(TAG, "io_cb() failed");
-                        }
+            // we're connected, lets do data transfer
 
-                        cb_res = conn->proto_handler(conn, ASIO_EVT_SOCKET_READY, registry->user_data);
-
-                        if(cb_res == ASIO_CB_CLOSE_CONNECTION || (conn->user_flags & CONN_FLAG_CLOSE)) {
-                            conn->state = ASIO_CONN_CLOSED;
-                        }
-
-                        // unnecessary?
-                        // conn->evt_handler(conn, ASIO_EVT_SOCKET_READY, registry->user_data);
-                    }
-                break;
-
-                case ASIO_POLL_ERR:
-                    ESP_LOGE(TAG, "got ASIO_POLL_ERR");
-                    conn->state = ASIO_CONN_CLOSED;
-                break;
+            // perform I/O
+            if(conn->io_handler(conn, ASIO_EVT_SOCKET_READY) != ASIO_CB_OK) {
+                // TODO
+                ESP_LOGE(TAG, "io_cb() failed");
             }
+
+            // cb_res = conn->proto_handler(conn, ASIO_EVT_SOCKET_READY, registry->user_data);
+
+            // unnecessary?
+            if(conn->evt_handler) {
+                conn->evt_handler(conn, ASIO_EVT_SOCKET_READY);
+            }
+
+            // shall we close?
+            if(conn->user_flags & CONN_FLAG_CLOSE) {
+                conn->state = ASIO_CONN_CLOSING;
+            }
+
 
             break;
 
-        case ASIO_CONN_CLOSED:
+        case ASIO_CONN_CLOSING:
+
+            conn->io_handler(conn, ASIO_EVT_CLOSE);
+
             // notify proto handler
             if(conn->proto_handler) {
-                conn->proto_handler(conn, ASIO_EVT_CLOSE, registry->user_data);
+                conn->proto_handler(conn, ASIO_EVT_CLOSE);
             }
 
             // notify user
-            conn->evt_handler(conn, ASIO_EVT_CLOSE, registry->user_data);
+            if(conn->evt_handler)
+                conn->evt_handler(conn, ASIO_EVT_CLOSE);
 
+            conn->state = ASIO_CONN_CLOSED;
+            break;
+
+        case ASIO_CONN_CLOSED:
             // cleanup
             asio_registry_remove_connection(conn);
             break;

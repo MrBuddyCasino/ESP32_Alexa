@@ -28,6 +28,7 @@
 #include "app_main.h"
 #include "alexa_public.h"
 #include "mdns_task.h"
+#include "sntp.h"
 #ifdef CONFIG_BT_SPEAKER_MODE
 #include "bt_speaker.h"
 #endif
@@ -138,6 +139,26 @@ static void start_web_radio()
     web_radio_start(radio_config);
 }
 
+#include "ssl_client.h"
+
+void test_ssl()
+{
+    const char *sni = NULL;
+    int bidi = 0;
+    char *alpn = NULL;
+    start_ssl("news.ycombinator.com", "443", sni, bidi, alpn);
+    ESP_LOGI(TAG, "GetStackHighWaterMark: %d\n", uxTaskGetStackHighWaterMark(NULL));
+}
+
+
+#include "common_buffer.h"
+#include "url_parser.h"
+#include "nghttp2/nghttp2.h"
+#include "nghttp2_client.h"
+#include "asio.h"
+#include "asio_http.h"
+#include "asio_http2.h"
+
 /**
  * entry point
  */
@@ -152,6 +173,14 @@ void app_main()
     bt_speaker_start(create_renderer_config());
 #else
     start_wifi();
+    obtain_time();
+
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    asio_test_http();
+    //test_ssl();
+    //asio_test_http2();
+
+    /*
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     //start_web_radio();
     // can't mix cores when allocating interrupts
@@ -160,6 +189,7 @@ void app_main()
     audio_recorder_init();
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
+    */
 #endif
 
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());

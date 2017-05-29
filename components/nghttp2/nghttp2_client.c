@@ -320,10 +320,6 @@ static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
     return 0;
 }
 
-static int min(int a, int b) {
-    return a < b ? a : b;
-}
-
 
 /* fixes assertion error in:
  * assert(nghttp2_buf_avail(buf) >= datamax);
@@ -810,7 +806,7 @@ void event_loop_task(void *pvParameters)
 int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 					char *uri, char *method,
 					int32_t *stream_id,
-        			nghttp2_nv *headers,  size_t hdr_len,
+        			nghttp2_nv *headers, size_t hdr_len,
 			        nghttp2_data_provider *data_provider_struct,
 			        nghttp2_session_callbacks *callbacks,
 			        void *stream_user_data,
@@ -829,18 +825,19 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
     session_data = (*http2_session_ptr);
     session_data->user_data = session_user_data;
 
-
     /* parse url */
-    if((url = url_create(uri)) == NULL) {
+    if((url = url_parse(uri)) == NULL) {
         return -1;
     }
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+
     /* make ssl connection */
-    if((ret = nghttp_new_connection(session_data, url) != 0)) {
-        url_free(url);
-        return ret;
+    if(false) {
+        if((ret = nghttp_new_connection(session_data, url) != 0)) {
+            url_free(url);
+            return ret;
+        }
     }
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+
     // register callbacks
     if((ret = register_session_callbacks(&session_data->h2_session, callbacks, session_data)) != 0) {
         url_free(url);
@@ -852,7 +849,6 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 
     // send client settings
     send_client_connection_header(session_data->h2_session);
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     if(((*stream_id) = submit_request(session_data, url, headers, hdr_len, method, data_provider_struct, stream_user_data)) < 0) {
     	ESP_LOGI(TAG, "failed to submit request");
     	url_free(url);
@@ -877,7 +873,7 @@ int32_t nghttp_new_stream(http2_session_data_t *http2_session,
     ESP_LOGI(TAG, "new nghttp stream, uri: %s", uri);
 
     /* parse url */
-    if((url = url_create(uri)) == NULL) {
+    if((url = url_parse(uri)) == NULL) {
         ESP_LOGI(TAG, "failed to create url %s", uri);
         return -1;
     }

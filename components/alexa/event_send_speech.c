@@ -139,7 +139,7 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             }
 
             //  convert 2x 32 bit stereo -> 1 x 16 bit mono
-            int samples_read = bytes_read / 2 / (I2S_BITS_PER_SAMPLE_32BIT / 8);
+            uint32_t samples_read = bytes_read / 2 / (I2S_BITS_PER_SAMPLE_32BIT / 8);
 
             for(int i = 0; i < samples_read; i++) {
                 buf_ptr_write[0] = buf_ptr_read[2]; // mid

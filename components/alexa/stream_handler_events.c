@@ -26,7 +26,7 @@
 
 
 
-void handle_speak_directive(cJSON *directive)
+void handle_speak_directive(alexa_session_t *alexa_session, cJSON *directive)
 {
     ;
 }
@@ -53,7 +53,7 @@ static void start_web_radio(char *play_url)
     web_radio_start(radio_config);
 }
 
-void handle_play_directive(cJSON *directive)
+void handle_play_directive(alexa_session_t *alexa_session, cJSON *directive)
 {
     cJSON *payload = cJSON_GetObjectItem(directive, "payload");
     cJSON *audioItem = cJSON_GetObjectItem(payload, "audioItem");
@@ -70,7 +70,7 @@ void handle_play_directive(cJSON *directive)
     start_web_radio(strdup(url->valuestring));
 }
 
-void handle_directive(const char *at, size_t length)
+void handle_directive(alexa_session_t *alexa_session, const char *at, size_t length)
 {
     printf("handle_directive:\n%.*s\n", length, at);
 
@@ -82,12 +82,12 @@ void handle_directive(const char *at, size_t length)
 
     if(strstr(name->valuestring, "Speak"))
     {
-        handle_speak_directive(directive);
+        handle_speak_directive(alexa_session, directive);
     }
 
     if(strstr(name->valuestring, "Play"))
     {
-        handle_play_directive(directive);
+        handle_play_directive(alexa_session, directive);
     }
 
     cJSON_Delete(root);
@@ -188,7 +188,7 @@ static int on_multipart_data_end(multipart_parser *parser)
     }
 
     if(alexa_stream->current_part == META_JSON) {
-        handle_directive((const char *) json_buf->base, json_buf->len);
+        handle_directive(alexa_session, (const char *) json_buf->base, json_buf->len);
         buf_destroy(json_buf);
         json_buf = NULL;
     }

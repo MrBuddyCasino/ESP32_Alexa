@@ -28,18 +28,18 @@ typedef enum
 
 
 typedef enum {
-    ASIO_CB_OK = 1, ASIO_CB_ERR, ASIO_CB_CLOSE_CONNECTION
+    ASIO_CB_OK = 1, ASIO_CB_ERR = -1, ASIO_CB_CLOSE_CONNECTION = -2
 } asio_cb_res_t;
 
 
 typedef enum {
-    ASIO_POLL_OK = 1, ASIO_POLL_ERR
+    ASIO_POLL_OK = 0, ASIO_POLL_ERR = -1
 } asio_poll_res_t;
 
 
 typedef enum
 {
-    ASIO_TCP = 1
+    ASIO_TCP = 1, ASIO_TCP_SSL = 2
 } asio_transport_t;
 
 
@@ -48,6 +48,7 @@ typedef enum
     ASIO_CONN_NEW = 1,
     ASIO_CONN_CONNECTING,
     ASIO_CONN_CONNECTED,
+    ASIO_CONN_CLOSING,
     ASIO_CONN_CLOSED
 } asio_conn_state_t;
 
@@ -56,16 +57,18 @@ typedef struct asio_connection_t asio_connection_t;
 typedef struct asio_registry_t asio_registry_t;
 
 
-typedef asio_cb_res_t (*asio_event_handler_t)(struct asio_connection_t *conn, asio_event_t event, void *user_data);
+typedef asio_cb_res_t (*asio_event_handler_t)(struct asio_connection_t *conn, asio_event_t event);
 
 typedef asio_poll_res_t (*asio_poll_t)(asio_connection_t *conn);
+
+/* app send/recv data */
+typedef size_t (*asio_buf_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);
 
 struct asio_connection_t
 {
     asio_registry_t *registry;
     url_t *url;
     int fd;
-    bool is_buffered;
     asio_transport_t transport;
     asio_conn_state_t state;
     asio_event_handler_t evt_handler;
@@ -79,6 +82,14 @@ struct asio_connection_t
     asio_poll_t poll_handler;
     asio_event_handler_t io_handler;
     void *io_ctx;
+
+    time_t last_modified;
+
+    /* send data to app */
+    asio_buf_transfer_t app_recv;
+
+    /* get data from app */
+    asio_buf_transfer_t app_send;
 };
 
 
@@ -89,6 +100,7 @@ struct asio_registry_t
     void *user_data;
 };
 
+/* poll all connections and execute callbacks */
 int asio_registry_poll(asio_registry_t *registry);
 
 void asio_registry_init(asio_registry_t **registry, void *user_data);

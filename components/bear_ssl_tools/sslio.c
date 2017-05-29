@@ -39,7 +39,6 @@
 #include <arpa/inet.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <poll.h>
 
 #define SOCKET           int
 #define INVALID_SOCKET   (-1)
@@ -141,106 +140,6 @@ run_command(br_ssl_engine_context *cc, unsigned char *buf, size_t len)
 	}
 }
 
-#ifdef _WIN32
-
-typedef struct {
-	unsigned char buf[1024];
-	size_t ptr, len;
-} in_buffer;
-
-static int
-in_return_bytes(in_buffer *bb, unsigned char *buf, size_t len)
-{
-	if (bb->ptr < bb->len) {
-		size_t clen;
-
-		if (buf == NULL) {
-			return 1;
-		}
-		clen = bb->len - bb->ptr;
-		if (clen > len) {
-			clen = len;
-		}
-		memcpy(buf, bb->buf + bb->ptr, clen);
-		bb->ptr += clen;
-		if (bb->ptr == bb->len) {
-			bb->ptr = bb->len = 0;
-		}
-		return (int)clen;
-	}
-	return 0;
-}
-
-/*
- * A buffered version of in_read(), using a buffer to return only
- * full lines when feasible.
- */
-static int
-in_read_buffered(HANDLE h_in, in_buffer *bb, unsigned char *buf, size_t len)
-{
-	int n;
-
-	if (len == 0) {
-		return 0;
-	}
-	n = in_return_bytes(bb, buf, len);
-	if (n != 0) {
-		return n;
-	}
-	for (;;) {
-		INPUT_RECORD inrec;
-		DWORD v;
-
-		if (!PeekConsoleInput(h_in, &inrec, 1, &v)) {
-			fprintf(stderr, "ERROR: PeekConsoleInput()"
-				" failed with 0x%08lX\n",
-				(unsigned long)GetLastError());
-			return -1;
-		}
-		if (v == 0) {
-			return 0;
-		}
-		if (!ReadConsoleInput(h_in, &inrec, 1, &v)) {
-			fprintf(stderr, "ERROR: ReadConsoleInput()"
-				" failed with 0x%08lX\n",
-				(unsigned long)GetLastError());
-			return -1;
-		}
-		if (v == 0) {
-			return 0;
-		}
-		if (inrec.EventType == KEY_EVENT
-			&& inrec.Event.KeyEvent.bKeyDown)
-		{
-			int c;
-
-			c = inrec.Event.KeyEvent.uChar.AsciiChar;
-			if (c == '\n' || c == '\r' || c == '\t'
-				|| (c >= 32 && c != 127))
-			{
-				if (c == '\r') {
-					c = '\n';
-				}
-				bb->buf[bb->ptr ++] = (unsigned char)c;
-				printf("%c", c);
-				fflush(stdout);
-				bb->len = bb->ptr;
-				if (bb->len == sizeof bb->buf || c == '\n') {
-					bb->ptr = 0;
-					return in_return_bytes(bb, buf, len);
-				}
-			}
-		}
-	}
-}
-
-static int
-in_avail_buffered(HANDLE h_in, in_buffer *bb)
-{
-	return in_read_buffered(h_in, bb, NULL, 1);
-}
-
-#endif
 
 /* see brssl.h */
 int
@@ -250,12 +149,6 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 	int retcode;
 	int verbose;
 	int trace;
-#ifdef _WIN32
-	WSAEVENT fd_event;
-	int can_send, can_recv;
-	HANDLE h_in, h_out;
-	in_buffer bb;
-#endif
 
 	hsdetails = 0;
 	retcode = 0;
@@ -313,52 +206,19 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 		}
 	}
 
-#ifdef _WIN32
-	fd_event = WSA_INVALID_EVENT;
-	can_send = 0;
-	can_recv = 0;
-	bb.ptr = bb.len = 0;
-#endif
-
 	/*
 	 * On Unix systems, we need to follow three descriptors:
 	 * standard input (0), standard output (1), and the socket
 	 * itself (for both read and write). This is done with a poll()
 	 * call.
 	 *
-	 * On Windows systems, we use WSAEventSelect() to associate
-	 * an event handle with the network activity, and we use
-	 * WaitForMultipleObjectsEx() on that handle and the standard
-	 * input handle, when appropriate. Standard output is assumed
-	 * to be always writeable, and standard input to be the console;
-	 * this does not work well (or at all) with redirections (to
-	 * pipes or files) but it should be enough for a debug tool
-	 * (TODO: make something that handles redirections as well).
 	 */
 
-#ifdef _WIN32
-	fd_event = WSACreateEvent();
-	if (fd_event == WSA_INVALID_EVENT) {
-		fprintf(stderr, "ERROR: WSACreateEvent() failed with %d\n",
-			WSAGetLastError());
-		retcode = -2;
-		goto engine_exit;
-	}
-	WSAEventSelect(fd, fd_event, FD_READ | FD_WRITE | FD_CLOSE);
-	h_in = GetStdHandle(STD_INPUT_HANDLE);
-	h_out = GetStdHandle(STD_OUTPUT_HANDLE);
-	SetConsoleMode(h_in, ENABLE_ECHO_INPUT
-		| ENABLE_LINE_INPUT
-		| ENABLE_PROCESSED_INPUT
-		| ENABLE_PROCESSED_OUTPUT
-		| ENABLE_WRAP_AT_EOL_OUTPUT);
-#else
 	/*
 	 * Make sure that stdin and stdout are non-blocking.
 	 */
 	fcntl(0, F_SETFL, O_NONBLOCK);
 	fcntl(1, F_SETFL, O_NONBLOCK);
-#endif
 
 	/*
 	 * Perform the loop.
@@ -366,13 +226,11 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 	for (;;) {
 		unsigned st;
 		int sendrec, recvrec, sendapp, recvapp;
-#ifdef _WIN32
-		HANDLE pfd[2];
-		DWORD wt;
-#else
-		struct pollfd pfd[3];
+		// struct pollfd pfd[3];
+		struct timeval tv;
+		tv.tv_sec = 0;
+		tv.tv_usec = 0;
 		int n;
-#endif
 		size_t u, k_fd, k_in, k_out;
 		int sendrec_ok, recvrec_ok, sendapp_ok, recvapp_ok;
 
@@ -473,103 +331,40 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 		k_in = (size_t)-1;
 		k_out = (size_t)-1;
 
+        fd_set readset;
+        fd_set writeset;
+        fd_set errset;
+
+        FD_ZERO(&readset);
+        FD_ZERO(&writeset);
+        FD_ZERO(&errset);
+
 		u = 0;
-#ifdef _WIN32
-		/*
-		 * If we recorded that we can send or receive data, and we
-		 * want to do exactly that, then we don't wait; we just do
-		 * it.
-		 */
-		recvapp_ok = 0;
-		sendrec_ok = 0;
-		recvrec_ok = 0;
-		sendapp_ok = 0;
 
-		if (sendrec && can_send) {
-			sendrec_ok = 1;
-		} else if (recvrec && can_recv) {
-			recvrec_ok = 1;
-		} else if (recvapp) {
-			recvapp_ok = 1;
-		} else if (sendapp && in_avail_buffered(h_in, &bb)) {
-			sendapp_ok = 1;
-		} else {
-			/*
-			 * If we cannot do I/O right away, then we must
-			 * wait for some event, and try again.
-			 */
-			pfd[u] = (HANDLE)fd_event;
-			k_fd = u;
-			u ++;
-			if (sendapp) {
-				pfd[u] = h_in;
-				k_in = u;
-				u ++;
-			}
-			wt = WaitForMultipleObjectsEx(u, pfd,
-				FALSE, INFINITE, FALSE);
-			if (wt == WAIT_FAILED) {
-				fprintf(stderr, "ERROR:"
-					" WaitForMultipleObjectsEx()"
-					" failed with 0x%08lX",
-					(unsigned long)GetLastError());
-				retcode = -2;
-				goto engine_exit;
-			}
-			if (wt == k_fd) {
-				WSANETWORKEVENTS e;
-
-				if (WSAEnumNetworkEvents(fd, fd_event, &e)) {
-					fprintf(stderr, "ERROR:"
-						" WSAEnumNetworkEvents()"
-						" failed with %d\n",
-						WSAGetLastError());
-					retcode = -2;
-					goto engine_exit;
-				}
-				if (e.lNetworkEvents & (FD_WRITE | FD_CLOSE)) {
-					can_send = 1;
-				}
-				if (e.lNetworkEvents & (FD_READ | FD_CLOSE)) {
-					can_recv = 1;
-				}
-			}
-			continue;
-		}
-#else
 		if (sendrec || recvrec) {
-			pfd[u].fd = fd;
-			pfd[u].revents = 0;
-			pfd[u].events = 0;
 			if (sendrec) {
-				pfd[u].events |= POLLOUT;
+			    FD_SET(fd, &writeset);
 			}
 			if (recvrec) {
-				pfd[u].events |= POLLIN;
+			    FD_SET(fd, &readset);
 			}
-			k_fd = u;
-			u ++;
+			FD_SET(fd, &errset);
 		}
 		if (sendapp) {
-			pfd[u].fd = 0;
-			pfd[u].revents = 0;
-			pfd[u].events = POLLIN;
-			k_in = u;
-			u ++;
+		    FD_SET(0, &readset);
 		}
 		if (recvapp) {
-			pfd[u].fd = 1;
-			pfd[u].revents = 0;
-			pfd[u].events = POLLOUT;
-			k_out = u;
-			u ++;
+		    FD_SET(1, &writeset);
 		}
-		n = poll(pfd, u, -1);
+
+		// n = poll(pfd, u, -1);
+		n = lwip_select(fd + 1, &readset, &writeset, &errset, &tv);
+
 		if (n < 0) {
 			if (errno == EINTR) {
 				continue;
 			}
-			perror("ERROR: poll()");
+			perror("ERROR: select()");
 			retcode = -2;
 			goto engine_exit;
 		}
@@ -582,17 +377,22 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 		 * so as to force the read() or write() call that will
 		 * detect the situation.
 		 */
+		/*
 		while (u -- > 0) {
 			if (pfd[u].revents & (POLLERR | POLLHUP)) {
 				pfd[u].revents |= POLLIN | POLLOUT;
 			}
 		}
+		*/
 
-		recvapp_ok = recvapp && (pfd[k_out].revents & POLLOUT) != 0;
-		sendrec_ok = sendrec && (pfd[k_fd].revents & POLLOUT) != 0;
-		recvrec_ok = recvrec && (pfd[k_fd].revents & POLLIN) != 0;
-		sendapp_ok = sendapp && (pfd[k_in].revents & POLLIN) != 0;
-#endif
+		//recvapp_ok = recvapp && (pfd[k_out].revents & POLLOUT) != 0;
+		recvapp_ok = recvapp && FD_ISSET(1, &writeset);
+		//sendrec_ok = sendrec && (pfd[k_fd].revents & POLLOUT) != 0;
+		sendrec_ok = sendrec && FD_ISSET(fd, &writeset);
+		//recvrec_ok = recvrec && (pfd[k_fd].revents & POLLIN) != 0;
+		recvrec_ok = recvrec && FD_ISSET(fd, &readset);
+		//sendapp_ok = sendapp && (pfd[k_in].revents & POLLIN) != 0;
+		sendapp_ok = sendapp && FD_ISSET(0, &readset);
 
 		/*
 		 * We give preference to outgoing data, on stdout and on
@@ -601,22 +401,10 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 		if (recvapp_ok) {
 			unsigned char *buf;
 			size_t len;
-#ifdef _WIN32
-			DWORD wlen;
-#else
 			ssize_t wlen;
-#endif
 
 			buf = br_ssl_engine_recvapp_buf(cc, &len);
-#ifdef _WIN32
-			if (!WriteFile(h_out, buf, len, &wlen, NULL)) {
-				if (verbose) {
-					fprintf(stderr, "stdout closed...\n");
-				}
-				retcode = -2;
-				goto engine_exit;
-			}
-#else
+
 			wlen = write(1, buf, len);
 			if (wlen <= 0) {
 				if (verbose) {
@@ -625,7 +413,7 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 				retcode = -2;
 				goto engine_exit;
 			}
-#endif
+
 			br_ssl_engine_recvapp_ack(cc, wlen);
 			continue;
 		}
@@ -637,21 +425,11 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 			buf = br_ssl_engine_sendrec_buf(cc, &len);
 			wlen = send(fd, buf, len, 0);
 			if (wlen <= 0) {
-#ifdef _WIN32
-				int err;
 
-				err = WSAGetLastError();
-				if (err == EWOULDBLOCK
-					|| err == WSAEWOULDBLOCK)
-				{
-					can_send = 0;
-					continue;
-				}
-#else
 				if (errno == EINTR || errno == EWOULDBLOCK) {
 					continue;
 				}
-#endif
+
 				if (verbose) {
 					fprintf(stderr, "socket closed...\n");
 				}
@@ -672,21 +450,11 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 			buf = br_ssl_engine_recvrec_buf(cc, &len);
 			rlen = recv(fd, buf, len, 0);
 			if (rlen <= 0) {
-#ifdef _WIN32
-				int err;
 
-				err = WSAGetLastError();
-				if (err == EWOULDBLOCK
-					|| err == WSAEWOULDBLOCK)
-				{
-					can_recv = 0;
-					continue;
-				}
-#else
 				if (errno == EINTR || errno == EWOULDBLOCK) {
 					continue;
 				}
-#endif
+
 				if (verbose) {
 					fprintf(stderr, "socket closed...\n");
 				}
@@ -702,18 +470,11 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 		if (sendapp_ok) {
 			unsigned char *buf;
 			size_t len;
-#ifdef _WIN32
-			int rlen;
-#else
 			ssize_t rlen;
-#endif
 
 			buf = br_ssl_engine_sendapp_buf(cc, &len);
-#ifdef _WIN32
-			rlen = in_read_buffered(h_in, &bb, buf, len);
-#else
 			rlen = read(0, buf, len);
-#endif
+
 			if (rlen <= 0) {
 				if (verbose) {
 					fprintf(stderr, "stdin closed...\n");
@@ -736,10 +497,5 @@ run_ssl_engine(br_ssl_engine_context *cc, unsigned long fd, unsigned flags)
 	 * Release allocated structures.
 	 */
 engine_exit:
-#ifdef _WIN32
-	if (fd_event != WSA_INVALID_EVENT) {
-		WSACloseEvent(fd_event);
-	}
-#endif
 	return retcode;
 }
