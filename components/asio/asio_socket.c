@@ -21,8 +21,6 @@
 #include <unistd.h>
 #include <fcntl.h>
 
-#include "network.h"
-
 #include "esp_log.h"
 #include "url_parser.h"
 #include "common_buffer.h"

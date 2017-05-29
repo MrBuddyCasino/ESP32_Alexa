@@ -139,16 +139,7 @@ static void start_web_radio()
     web_radio_start(radio_config);
 }
 
-#include "ssl_client.h"
 
-void test_ssl()
-{
-    const char *sni = NULL;
-    int bidi = 0;
-    char *alpn = NULL;
-    start_ssl("news.ycombinator.com", "443", sni, bidi, alpn);
-    ESP_LOGI(TAG, "GetStackHighWaterMark: %d\n", uxTaskGetStackHighWaterMark(NULL));
-}
 
 
 #include "common_buffer.h"
