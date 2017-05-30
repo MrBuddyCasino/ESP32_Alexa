@@ -47,7 +47,7 @@ int http_data(http_parser* parser, const char *at, size_t length)
 asio_result_t asio_event_handler(struct asio_connection_t *conn)
 {
     // printf("asio cb event: %d\n", event);
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 void asio_test_http()

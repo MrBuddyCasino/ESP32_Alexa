@@ -23,7 +23,7 @@ enum conn_flags {
 
 
 typedef enum {
-    ASIO_CB_OK = 0, ASIO_CB_ERR = -1, ASIO_CB_CLOSE_CONNECTION = -2
+    ASIO_OK = 0, ASIO_ERR = -1, ASIO_CLOSE_CONNECTION = -2
 } asio_result_t;
 
 

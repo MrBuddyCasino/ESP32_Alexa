@@ -612,8 +612,8 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
 {
     ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
 
-    if(proto_ctx->delegate_io_handler(conn) != ASIO_CB_OK) {
-        return ASIO_CB_CLOSE_CONNECTION;
+    if(proto_ctx->delegate_io_handler(conn) != ASIO_OK) {
+        return ASIO_CLOSE_CONNECTION;
     }
 
     unsigned vmin, vmax;
@@ -637,12 +637,12 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     if (proto_ctx->chain == NULL && proto_ctx->sk != NULL) {
         fprintf(stderr, "ERROR: private key specified, but"
             " no certificate chain\n");
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
     if (proto_ctx->chain != NULL && proto_ctx->sk == NULL) {
         fprintf(stderr, "ERROR: certificate chain specified, but"
             " no private key\n");
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
 
     if (vmin == 0) {
@@ -654,7 +654,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     if (vmax < vmin) {
         fprintf(stderr, "ERROR: impossible minimum/maximum protocol"
             " version combination\n");
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
 
     if (proto_ctx->suites == NULL) {
@@ -707,18 +707,18 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     }
     if (proto_ctx->dnhash == NULL) {
         fprintf(stderr, "ERROR: no supported hash function\n");
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
     br_x509_minimal_init(proto_ctx->xc, proto_ctx->dnhash,
         &VEC_ELT(*(proto_ctx->anchors), 0), VEC_LEN(*(proto_ctx->anchors)));
     if (vmin <= BR_TLS11) {
         if (!(hfuns & (1 << br_md5_ID))) {
             fprintf(stderr, "ERROR: TLS 1.0 and 1.1 need MD5\n");
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         if (!(hfuns & (1 << br_sha1_ID))) {
             fprintf(stderr, "ERROR: TLS 1.0 and 1.1 need SHA-1\n");
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
     }
     for (u = 0; u < proto_ctx->num_suites; u ++) {
@@ -730,25 +730,25 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
             fprintf(stderr,
                 "ERROR: cipher suite %s requires TLS 1.2\n",
                 proto_ctx->suites[u].name);
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         if ((req & REQ_SHA1) != 0 && !(hfuns & (1 << br_sha1_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-1\n",
                 proto_ctx->suites[u].name);
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         if ((req & REQ_SHA256) != 0 && !(hfuns & (1 << br_sha256_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-256\n",
                 proto_ctx->suites[u].name);
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         if ((req & REQ_SHA384) != 0 && !(hfuns & (1 << br_sha384_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-384\n",
                 proto_ctx->suites[u].name);
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         /* TODO: algorithm implementation selection */
         if ((req & REQ_AESCBC) != 0) {
@@ -847,7 +847,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
         } else {
             proto_ctx->zc->issuer_key_type = get_cert_signer_algo(&proto_ctx->chain[0]);
             if (proto_ctx->zc->issuer_key_type == 0) {
-                return ASIO_CB_ERR;
+                return ASIO_ERR;
             }
         }
         br_ssl_client_set_client_certificate(proto_ctx->cc, &proto_ctx->zc->vtable);
@@ -856,7 +856,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     br_ssl_engine_set_buffer(&proto_ctx->cc->eng, proto_ctx->iobuf, iobuf_len, proto_ctx->bidi);
     br_ssl_client_reset(proto_ctx->cc, conn->url->host, 0);
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 asio_result_t asio_ssl_close(asio_connection_t *conn)
@@ -884,7 +884,7 @@ asio_result_t asio_ssl_close(asio_connection_t *conn)
     /* free delegate resources */
     proto_ctx->delegate_io_handler(conn);
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
@@ -898,7 +898,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
     int trace = io_ctx->trace;
 
     /* poll socket */
-    if(conn->poll_handler(conn) == ASIO_CB_ERR) {
+    if(conn->poll_handler(conn) == ASIO_ERR) {
         ESP_LOGE(TAG, "poll failed");
         conn->user_flags |= CONN_FLAG_CLOSE;
         return 0;
@@ -918,7 +918,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
     if (st == BR_SSL_CLOSED) {
         handle_closed(verbose, cc);
         conn->user_flags |= CONN_FLAG_CLOSE;
-        return ASIO_CB_CLOSE_CONNECTION;
+        return ASIO_CLOSE_CONNECTION;
     }
 
     /*
@@ -1002,7 +1002,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
                 fprintf(stderr, "socket closed...\n");
             }
             conn->user_flags |= CONN_FLAG_CLOSE;
-            return ASIO_CB_CLOSE_CONNECTION;
+            return ASIO_CLOSE_CONNECTION;
         }
         if (trace) {
             dump_blob("Outgoing bytes", buf, wlen);
@@ -1033,7 +1033,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
             }
 
             conn->user_flags |= CONN_FLAG_CLOSE;
-            return ASIO_CB_CLOSE_CONNECTION;
+            return ASIO_CLOSE_CONNECTION;
         }
         if (trace) {
             dump_blob("Incoming bytes", buf, rlen);
@@ -1065,7 +1065,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
         br_ssl_engine_flush(cc, 0);
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
@@ -1088,7 +1088,7 @@ asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
             break;
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 

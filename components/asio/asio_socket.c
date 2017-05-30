@@ -151,12 +151,12 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
             return 0;
         }
         perror("ERROR: select()");
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
 
     // nothing interesting happened
     if (n == 0) {
-        return ASIO_CB_OK;
+        return ASIO_OK;
     }
 
     if(FD_ISSET(conn->fd, &writeset))
@@ -168,7 +168,7 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
     if(FD_ISSET(conn->fd, &errset))
         conn->poll_flags |=  POLL_FLAG_ERR;
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
@@ -191,7 +191,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                return ASIO_CB_CLOSE_CONNECTION;
+                return ASIO_CLOSE_CONNECTION;
             }
         } else
         {
@@ -220,7 +220,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                return ASIO_CB_CLOSE_CONNECTION;
+                return ASIO_CLOSE_CONNECTION;
             }
         } else
         {
@@ -234,10 +234,10 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
     {
         // TODO
         ESP_LOGE(TAG, "POLL_FLAG_ERR set");
-        return ASIO_CB_CLOSE_CONNECTION;
+        return ASIO_CLOSE_CONNECTION;
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
@@ -258,7 +258,7 @@ asio_result_t asio_socket_event(asio_connection_t *conn)
             int fd = asio_socket_connect(conn->url->host, conn->url->port, true);
             if(fd < 0) {
                 conn->state = ASIO_CONN_CLOSING;
-                return ASIO_CB_ERR;
+                return ASIO_ERR;
             }
             conn->fd = fd;
             conn->state = ASIO_CONN_CONNECTED;
@@ -276,7 +276,7 @@ asio_result_t asio_socket_event(asio_connection_t *conn)
             break;
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 

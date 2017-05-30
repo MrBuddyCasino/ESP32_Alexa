@@ -65,7 +65,7 @@ asio_result_t asio_http_handle_close(asio_connection_t *conn)
         free(proto_ctx);
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
@@ -82,7 +82,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
     {
         ESP_LOGE(TAG, "http_parser_execute() error: %d", nparsed);
         conn->user_flags |= CONN_FLAG_CLOSE;
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
     }
 
     return nparsed;
@@ -128,7 +128,7 @@ asio_result_t asio_proto_handler_http(asio_connection_t *conn)
             break;
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
@@ -167,7 +167,7 @@ int asio_new_http_request(asio_registry_t *registry, char *uri, char *method, ht
 
     proto_ctx->parser = calloc(1, sizeof(http_parser));
     if(proto_ctx->parser == NULL)
-        return ASIO_CB_ERR;
+        return ASIO_ERR;
 
     http_parser_init(proto_ctx->parser, HTTP_RESPONSE);
     proto_ctx->parser->data = conn;

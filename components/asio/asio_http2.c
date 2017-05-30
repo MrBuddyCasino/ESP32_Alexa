@@ -63,7 +63,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
         ret = nghttp2_session_mem_recv(h2, buf, len);
         if (ret < 0) {
             ESP_LOGW(TAG, "Fatal error: %s", nghttp2_strerror((int ) ret));
-            return ASIO_CB_ERR;
+            return ASIO_ERR;
         }
         time(&conn->last_modified);
     }
@@ -137,7 +137,7 @@ asio_result_t asio_io_handler_http2(asio_connection_t *conn)
             break;
     }
 
-    return ASIO_CB_OK;
+    return ASIO_OK;
 }
 
 
