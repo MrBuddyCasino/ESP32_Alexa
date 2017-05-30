@@ -21,6 +21,7 @@
 
 void asio_test_http2()
 {
+    int res;
     char *user_data = "";
     asio_registry_t *registry;
     asio_registry_init(&registry, user_data);
@@ -31,24 +32,26 @@ void asio_test_http2()
 
     nghttp2_session_callbacks *callbacks;
     create_default_callbacks(&callbacks);
+    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, asio_http2_on_stream_close);
 
     int32_t stream_id;
     http2_session_data_t *http2_session_ptr;
 
-    int res = asio_new_http2_session(
+    res = nghttp_new_session(&http2_session_ptr,
+                            uri, method,
+                            &stream_id,
+                            NULL, 0,
+                            NULL,
+                            callbacks,
+                            NULL, NULL);
+
+    res = asio_new_http2_session(
                 registry,
-                &http2_session_ptr,
-                uri, method,
-                &stream_id,
-                NULL, 0,
-                NULL,
-                callbacks,
-                NULL,
-                NULL);
+                http2_session_ptr,
+                uri);
 
     if(res != 0)
         return;
-
 
     while(1) {
         if(asio_registry_poll(registry) < 1)

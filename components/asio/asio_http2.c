@@ -25,9 +25,10 @@
 #define TAG "asio_http2"
 
 
-static int on_stream_close_callback(nghttp2_session *session, int32_t stream_id,
+int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
         uint32_t error_code, void *user_data)
 {
+
     http2_session_data_t *session_data = user_data;
 
     ESP_LOGI(TAG, "closed stream %d with error_code=%u", stream_id, error_code);
@@ -143,16 +144,13 @@ asio_result_t asio_io_handler_http2(asio_connection_t *conn)
 
 int asio_new_http2_session(
         asio_registry_t *registry,
-        http2_session_data_t **http2_session_ptr,
-        char *uri, char *method,
-        int32_t *stream_id,
-        nghttp2_nv *headers,  size_t hdr_len,
-        nghttp2_data_provider *data_provider_struct,
-        nghttp2_session_callbacks *callbacks,
-        void *stream_user_data,
-        void *session_user_data)
+        http2_session_data_t *http2_session,
+        char *uri)
 {
     asio_connection_t *conn;
+
+    /* do we need this? */
+    void *session_user_data = NULL;
 
     // create socket
     if(starts_with(uri, "https:"))
@@ -171,31 +169,19 @@ int asio_new_http2_session(
         return -1;
     }
 
+    if (conn == NULL) {
+        ESP_LOGE(TAG, "failed to create connection");
+        free_http2_session_data(http2_session, 0);
+        asio_registry_remove_connection(conn);
+        return ASIO_ERR;
+    }
+
     // register data transfer callbacks
     conn->app_recv = asio_app_recv_cb;
     conn->app_send = asio_app_send_cb;
 
-    nghttp2_session_callbacks_set_on_stream_close_callback(callbacks, on_stream_close_callback);
-
-    int ret = nghttp_new_session(
-                        http2_session_ptr,
-                        uri, method,
-                        stream_id,
-                        headers, hdr_len,
-                        data_provider_struct,
-                        callbacks,
-                        stream_user_data,
-                        session_user_data);
-
-    if (ret != 0) {
-        ESP_LOGE(TAG, "failed to create nghttp2 session: %d", ret);
-        free_http2_session_data(*http2_session_ptr, ret);
-        asio_registry_remove_connection(conn);
-        return ret;
-    }
-
-    conn->proto_ctx = *http2_session_ptr;
-    (*http2_session_ptr)->conn = conn;
+    conn->proto_ctx = http2_session;
+    http2_session->conn = conn;
 
     conn->proto_handler = asio_io_handler_http2;
 

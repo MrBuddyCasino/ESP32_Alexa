@@ -10,6 +10,8 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "freertos/freertos.h"
+#include "freertos/event_groups.h"
 
 #include "nghttp2/nghttp2.h"
 #include "nghttp2_client.h"
@@ -18,6 +20,10 @@
 
 #include "audio_player.h"
 #include "alexa.h"
+#include "common_buffer.h"
+#include "url_parser.h"
+#include "asio.h"
+#include "asio_http2.h"
 
 #define TAG "auth_handler"
 
@@ -26,27 +32,20 @@
 #define REFRESH_TOKEN_URI "https://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN
 
 
-typedef struct {
-    char *buf;
-    size_t len;
-} buffer_t;
-
 int auth_recv_callback(nghttp2_session *session, uint8_t flags, int32_t stream_id,
         const uint8_t *data, size_t len, void *user_data)
 {
     buffer_t *buffer = nghttp2_session_get_stream_user_data(session, stream_id);
 
     // grow the buffer
-    // If the ptr argument is NULL, realloc acts like malloc()
-    buffer->buf = realloc(buffer->buf, buffer->len + len);
-
-    if(buffer->buf == NULL) {
-        // TODO: insufficient memory for reallocation
-        return -1;
+    if(len > buf_free_capacity_after_purge(buffer)) {
+        if(buf_resize(buffer, buffer->len + len) != 0) {
+            // TODO: insufficient memory for reallocation
+            return -1;
+        }
     }
 
-    memcpy((buffer->buf) + (buffer->len), data, len);
-    buffer->len += len;
+    buf_write(buffer, data, len);
 
     return 0;
 }
@@ -61,10 +60,10 @@ int auth_on_stream_close_callback(nghttp2_session *session,
 
     buffer_t *buffer = nghttp2_session_get_stream_user_data(session, stream_id);
 
-    buffer->buf = realloc(buffer->buf, buffer->len + 1);
-    buffer->buf[buffer->len] = '\0';
+    //buffer->buf = realloc(buffer->buf, buffer->len + 1);
+    //buffer->buf[buffer->len] = '\0';
 
-    cJSON *root = cJSON_Parse(buffer->buf);
+    cJSON *root = cJSON_Parse((const char*)buffer->read_pos);
     cJSON *token_item = cJSON_GetObjectItem(root, "access_token");
     char *access_token = token_item->valuestring;
 
@@ -73,12 +72,14 @@ int auth_on_stream_close_callback(nghttp2_session *session,
     set_auth_token(alexa_session, strdup(access_token));
 
     cJSON_Delete(root);
-    free(buffer->buf);
-    free(buffer);
+    buf_destroy(buffer);
 
-    nghttp2_submit_goaway(session, NGHTTP2_FLAG_NONE, 0, NGHTTP2_NO_ERROR, NULL, 0);
+    // nghttp2_submit_goaway(session, NGHTTP2_FLAG_NONE, 0, NGHTTP2_NO_ERROR, NULL, 0);
 
-    // xEventGroupSetBits(alexa_session->event_group, AUTH_TOKEN_VALID_BIT);
+    EventGroupHandle_t event_group = get_event_group(alexa_session);
+    xEventGroupSetBits(event_group, AUTH_TOKEN_VALID_BIT);
+
+    asio_http2_on_stream_close(session, stream_id, error_code, user_data);
 
     return 0;
 }
@@ -89,8 +90,7 @@ void auth_token_refresh(alexa_session_t *alexa_session)
 {
     // char *uri = "http://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN;
 
-    buffer_t *buffer = calloc(1, sizeof(buffer_t));
-    buffer->len = 0;
+    buffer_t *buffer = buf_create(256);
 
     nghttp2_session_callbacks *callbacks;
     create_default_callbacks(&callbacks);
@@ -114,9 +114,15 @@ void auth_token_refresh(alexa_session_t *alexa_session)
         return;
     }
 
-    ret = read_write_loop(http2_session_auth);
-    ESP_LOGI(TAG, "auth_token_refresh event loop finished with %d", ret);
-    free_http2_session_data(http2_session_auth, ret);
+    asio_registry_t *registry = get_io_context(alexa_session);
+    asio_new_http2_session(
+            registry,
+            http2_session_auth,
+            REFRESH_TOKEN_URI);
+
+    // ret = read_write_loop(http2_session_auth);
+    // ESP_LOGI(TAG, "auth_token_refresh event loop finished with %d", ret);
+    // free_http2_session_data(http2_session_auth, ret);
 
     // xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task_auth", 8192, http2_session_auth, 1, NULL, 0);
 }

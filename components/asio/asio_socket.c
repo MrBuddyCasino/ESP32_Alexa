@@ -30,6 +30,11 @@
 #define SOCKET             int
 #define INVALID_SOCKET     (-1)
 
+typedef struct {
+    buffer_t *recv_buf;
+    buffer_t *send_buf;
+} asio_socket_context_t;
+
 
 int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
 {
@@ -84,6 +89,7 @@ int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
             continue;
         }
 
+        // disable Nagle's Algorithm
         if (p->ai_protocol == IPPROTO_TCP) {
             int opt = 1;
             if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(int))) {
@@ -175,16 +181,17 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
 /* perform direct I/O to/from socket to buffers */
 asio_result_t asio_socket_rw(asio_connection_t *conn)
 {
+    asio_socket_context_t *io_ctx = conn->io_ctx;
 
     /* poll */
     asio_socket_poll(conn);
 
     /* send */
 
-    size_t bytes_unsent = buf_data_unread(conn->send_buf);
+    size_t bytes_unsent = buf_data_unread(io_ctx->send_buf);
     if((conn->poll_flags & POLL_FLAG_SEND) && bytes_unsent > 0)
     {
-        int bytes_sent = send(conn->fd, conn->send_buf->read_pos, bytes_unsent, 0);
+        int bytes_sent = send(conn->fd, io_ctx->send_buf->read_pos, bytes_unsent, 0);
         if (bytes_sent <= 0) {
             if (errno == EINTR || errno == EWOULDBLOCK) {
                 // OK
@@ -195,22 +202,22 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             }
         } else
         {
-            buf_drain(conn->send_buf, bytes_sent);
+            buf_drain(io_ctx->send_buf, bytes_sent);
         }
     }
 
     /* receive */
 
-    size_t free_cap = buf_free_capacity(conn->recv_buf);
+    size_t free_cap = buf_free_capacity(io_ctx->recv_buf);
     // need to purge stale bytes
-    if(free_cap < 1 && buf_free_capacity_after_purge(conn->recv_buf) > 0) {
-        buf_move_remaining_bytes_to_front(conn->recv_buf);
-        free_cap = buf_free_capacity(conn->recv_buf);
+    if(free_cap < 1 && buf_free_capacity_after_purge(io_ctx->recv_buf) > 0) {
+        buf_move_remaining_bytes_to_front(io_ctx->recv_buf);
+        free_cap = buf_free_capacity(io_ctx->recv_buf);
     }
 
     if((conn->poll_flags & POLL_FLAG_RECV) && free_cap > 0)
     {
-        int bytes_recv = recv(conn->fd, conn->recv_buf->write_pos, free_cap, 0);
+        int bytes_recv = recv(conn->fd, io_ctx->recv_buf->write_pos, free_cap, 0);
 
         if (bytes_recv <= 0)
         {
@@ -224,7 +231,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             }
         } else
         {
-            buf_fill(conn->recv_buf, bytes_recv);
+            buf_fill(io_ctx->recv_buf, bytes_recv);
         }
     }
 
@@ -243,9 +250,10 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
 
 void asio_socket_free(asio_connection_t *conn)
 {
+    asio_socket_context_t *io_ctx = conn->io_ctx;
     close(conn->fd);
-    buf_destroy(conn->recv_buf);
-    buf_destroy(conn->send_buf);
+    buf_destroy(io_ctx->recv_buf);
+    buf_destroy(io_ctx->send_buf);
 }
 
 
@@ -279,7 +287,6 @@ asio_result_t asio_socket_event(asio_connection_t *conn)
     return ASIO_OK;
 }
 
-
 asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data)
 {
     url_t *url = url_parse(uri);
@@ -293,6 +300,15 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
     }
 
     conn->registry = registry;
+
+    asio_socket_context_t *io_ctx = calloc(1, sizeof(asio_socket_context_t));
+    conn->io_ctx = io_ctx;
+    /* ssl has its own buffers */
+    if(transport_proto != ASIO_TCP_SSL) {
+        conn->io_ctx = buf_create(1024);
+        conn->io_ctx = buf_create(1024);
+    }
+
     conn->url = url;
     conn->user_data = user_data;
     conn->transport = transport_proto;
@@ -300,12 +316,6 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
     conn->io_handler = asio_socket_event;
     conn->state = ASIO_CONN_NEW;
     conn->poll_handler = asio_socket_poll;
-
-    /* ssl has its own buffers */
-    if(transport_proto != ASIO_TCP_SSL) {
-        conn->send_buf = buf_create(1024);
-        conn->recv_buf = buf_create(1024);
-    }
 
     if(asio_registry_add_connection(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");

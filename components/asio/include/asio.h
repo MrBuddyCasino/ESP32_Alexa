@@ -52,7 +52,7 @@ typedef asio_result_t (*asio_event_handler_t)(struct asio_connection_t *conn);
 typedef asio_result_t (*asio_poll_t)(asio_connection_t *conn);
 
 /* app send/recv data */
-typedef size_t (*asio_buf_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);
+typedef size_t (*asio_on_data_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);
 
 struct asio_connection_t
 {
@@ -65,8 +65,6 @@ struct asio_connection_t
     void *proto_ctx;
     asio_event_handler_t proto_handler;
     void *user_data;
-    buffer_t *recv_buf;
-    buffer_t *send_buf;
     int user_flags;
     int poll_flags;
     asio_poll_t poll_handler;
@@ -76,10 +74,10 @@ struct asio_connection_t
     time_t last_modified;
 
     /* send data to app */
-    asio_buf_transfer_t app_recv;
+    asio_on_data_transfer_t app_recv;
 
     /* get data from app */
-    asio_buf_transfer_t app_send;
+    asio_on_data_transfer_t app_send;
 };
 
 

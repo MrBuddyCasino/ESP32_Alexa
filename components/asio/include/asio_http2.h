@@ -10,14 +10,11 @@
 
 int asio_new_http2_session(
         asio_registry_t *registry,
-        http2_session_data_t **http2_session_ptr,
-        char *uri, char *method,
-        int32_t *stream_id,
-        nghttp2_nv *headers,  size_t hdr_len,
-        nghttp2_data_provider *data_provider_struct,
-        nghttp2_session_callbacks *callbacks,
-        void *stream_user_data,
-        void *session_user_data);
+        http2_session_data_t *http2_session_ptr,
+        char *uri);
+
+int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
+        uint32_t error_code, void *user_data);
 
 void asio_test_http2();
 

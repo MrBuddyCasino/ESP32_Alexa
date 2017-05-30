@@ -36,6 +36,12 @@
 #include "stream_handler_directives.h"
 #include "stream_handler_events.h"
 #include "sound_startup.h"
+#include "url_parser.h"
+
+#include "asio.h"
+#include "asio_http2.h"
+#include "asio_gpio.h"
+#include "asio_generic.h"
 
 /**
  * Hide struct members from the public
@@ -47,12 +53,14 @@ struct alexa_session_struct_t
     EventGroupHandle_t event_group;
     alexa_stream_t *stream_directives;
     alexa_stream_t *stream_events;
+    asio_registry_t *registry;
 };
 
 static alexa_session_t *alexa_session;
 
 const int AUTH_TOKEN_VALID_BIT = BIT(1);
-const int DOWNCHAN_CONNECTED_BIT = BIT(3);
+const int DOWNCHAN_CONNECTED_BIT = BIT(2);
+const int INITIAL_STATE_SENT_BIT = BIT(3);
 
 /* Europe: alexa-eu / America: alexa-na */
 static char *uri_directives =
@@ -68,6 +76,16 @@ static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
 extern uint8_t file_start[] asm("_binary_what_time_raw_start");
 extern uint8_t file_end[] asm("_binary_what_time_raw_end");
 
+
+EventGroupHandle_t get_event_group(alexa_session_t *alexa_session)
+{
+    return alexa_session->event_group;
+}
+
+void *get_io_context(alexa_session_t *alexa_session)
+{
+    return alexa_session->registry;
+}
 
 player_t *get_player_config(alexa_session_t *alexa_session)
 {
@@ -104,6 +122,7 @@ static int create_alexa_session(alexa_session_t **alexa_session_ptr)
     (*alexa_session_ptr) = calloc(1, sizeof(struct alexa_session_struct_t));
     alexa_session_t *alexa_session = (*alexa_session_ptr);
 
+    asio_registry_init(&alexa_session->registry, NULL);
     alexa_session->event_group = xEventGroupCreate();
 
     // init player
@@ -277,14 +296,8 @@ int stream_close_callback(nghttp2_session *session, int32_t stream_id,
             stream_id);
 
     ESP_LOGI(TAG, "closed stream %d with error_code=%u", stream_id, error_code);
-    stream->status = CONN_CLOSED;
 
-    session_data->num_outgoing_streams--;
-    if (session_data->num_outgoing_streams < 1) {
-        ESP_LOGE(TAG, "no more open streams, terminating session");
-        nghttp2_submit_goaway(session, NGHTTP2_FLAG_NONE, 0, NGHTTP2_NO_ERROR,
-                NULL, 0);
-    }
+    asio_http2_on_stream_close(session, stream_id, error_code, user_data);
 
     return 0;
 }
@@ -421,9 +434,15 @@ int open_downchannel(alexa_session_t *alexa_session)
     alexa_session->stream_events->http2_session = http2_session;
 
     /* start read write loop */
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task", 8192,
-            http2_session, tskIDLE_PRIORITY + 1, NULL, 0);
+    //ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    //xTaskCreatePinnedToCore(&event_loop_task, "event_loop_task", 8192,
+    //        http2_session, tskIDLE_PRIORITY + 1, NULL, 0);
+
+    asio_registry_t *registry = get_io_context(alexa_session);
+    ret = asio_new_http2_session(
+            registry,
+            http2_session,
+            uri_directives);
 
     return ret;
 }
@@ -458,9 +477,8 @@ int net_send_event(alexa_session_t *alexa_session,
 
 
 
-void alexa_gpio_handler_task(void *pvParams)
+void alexa_gpio_handler_task(gpio_handler_param_t *params)
 {
-    gpio_handler_param_t *params = pvParams;
     xQueueHandle gpio_evt_queue = params->gpio_evt_queue;
     alexa_session_t *alexa_session = params->user_data;
 
@@ -478,6 +496,42 @@ void alexa_gpio_handler_task(void *pvParams)
     vTaskDelete(NULL);
 }
 
+
+void alexa_gpio_handler(gpio_num_t io_num, void *user_data)
+{
+    printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
+
+    alexa_session_t *alexa_session = user_data;
+    speech_recognizer_start_capture(alexa_session);
+}
+
+
+asio_result_t on_auth_token_valid_cb(asio_connection_t *conn, void *arg, void *user_data)
+{
+    EventGroupHandle_t event_group = arg;
+    alexa_session_t *alexa_session = user_data;
+
+    if(xEventGroupGetBits(event_group) & AUTH_TOKEN_VALID_BIT) {
+        open_downchannel(alexa_session);
+        return ASIO_CLOSE_CONNECTION;
+    }
+
+    return ASIO_OK;
+}
+
+asio_result_t on_downchan_connected_cb(asio_connection_t *conn, void *arg, void *user_data)
+{
+    EventGroupHandle_t event_group = arg;
+    alexa_session_t *alexa_session = user_data;
+
+    if(xEventGroupGetBits(event_group) & DOWNCHAN_CONNECTED_BIT) {
+        event_send_state(alexa_session);
+        return ASIO_CLOSE_CONNECTION;
+    }
+
+    return ASIO_OK;
+}
+
 int alexa_init()
 {
     ESP_LOGI(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
@@ -488,10 +542,11 @@ int alexa_init()
     // create I2S config
     // configure_audio_hw(alexa_session->player_config);
 
-    controls_init(alexa_gpio_handler_task, 4096, alexa_session);
+    //controls_init(alexa_gpio_handler_task, 4096, alexa_session);
+    asio_new_gpio_task(alexa_session->registry, GPIO_NUM_0, alexa_gpio_handler, alexa_session);
 
     // assume expired token
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    // ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     auth_token_refresh(alexa_session);
     ESP_LOGI(TAG, "auth_token_refresh finished");
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
@@ -500,11 +555,20 @@ int alexa_init()
     //                            false, true, portMAX_DELAY);
     // vTaskDelay( 10 / portTICK_PERIOD_MS );
     // conn should remain open
+    /*
     open_downchannel(alexa_session);
     ESP_LOGI(TAG, "open_downchannel finished");
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    */
+
+    /* open downchannel when authentication token has been acquired */
+    asio_new_generic_task(alexa_session->registry, on_auth_token_valid_cb, alexa_session->event_group, alexa_session);
+
+    /* send initial state when downchannel is connected */
+    asio_new_generic_task(alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
 
     // wait until downchannel is connected
+    /*
     xEventGroupWaitBits(alexa_session->event_group, DOWNCHAN_CONNECTED_BIT,
     false, true, portMAX_DELAY);
 
@@ -514,12 +578,19 @@ int alexa_init()
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     event_send_state(alexa_session);
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+    */
 
     // send voice
     // send_speech(alexa_session);
     play_sound(alexa_session->player_config);
 
-    // ESP_LOGI(TAG, "alexa_init stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
+    // run event loop
+    while(1) {
+        asio_registry_poll(alexa_session->registry);
+    }
+
+
+    //ESP_LOGI(TAG, "alexa_init stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 
     return 0;
 }

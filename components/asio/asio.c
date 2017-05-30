@@ -15,6 +15,7 @@
 #include <sys/time.h>
 #include <lwip/sockets.h>
 
+#include "esp_system.h"
 #include "esp_log.h"
 #include "common_buffer.h"
 #include "url_parser.h"
@@ -47,7 +48,9 @@ void asio_registry_destroy(asio_registry_t *registry)
 
 int asio_registry_add_connection(asio_registry_t *registry, asio_connection_t *conn)
 {
-    ESP_LOGI(TAG, "adding connection: %s", conn->url->authority);
+    if(conn->url) {
+        ESP_LOGI(TAG, "adding connection: %s", conn->url->authority);
+    }
 
     for (int i = 0; i < registry->max_connections; i++) {
         if (registry->connections[i] == NULL) {
@@ -63,7 +66,9 @@ void asio_registry_remove_connection(asio_connection_t *conn)
 {
     if(conn == NULL) return;
 
-    ESP_LOGI(TAG, "removing connection: %s", conn->url->authority);
+    if(conn->url) {
+        ESP_LOGI(TAG, "removing connection: %s", conn->url->authority);
+    }
 
     asio_registry_t *registry = conn->registry;
     for (int i = 0; i < registry->max_connections; i++) {
@@ -77,17 +82,14 @@ void asio_registry_remove_connection(asio_connection_t *conn)
     free(conn->io_ctx);
     url_free(conn->url);
     free(conn);
+
+    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
 }
 
 
 static void asio_registry_poll_connection(asio_registry_t *registry, asio_connection_t *conn)
 {
     asio_result_t cb_res;
-
-    // connection was closing last round, now its time to say goodbye
-    if(conn->state == ASIO_CONN_CLOSING) {
-        conn->state = ASIO_CONN_CLOSED;
-    }
 
     // perform I/O
     conn->io_handler(conn);
@@ -104,6 +106,23 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
 
     if(conn->user_flags & CONN_FLAG_CLOSE) {
         conn->state = ASIO_CONN_CLOSING;
+        conn->user_flags = 0;
+    }
+
+    // connection was closing last round, now its time to say goodbye
+    if(conn->state == ASIO_CONN_CLOSING) {
+
+        conn->io_handler(conn);
+
+        if(conn->proto_handler) {
+            conn->proto_handler(conn);
+        }
+
+        if(conn->evt_handler) {
+            conn->evt_handler(conn);
+        }
+
+        conn->state = ASIO_CONN_CLOSED;
     }
 
     // all handlers have been notified thats its game over, remove

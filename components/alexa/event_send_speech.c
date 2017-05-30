@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include "freertos/freertos.h"
 #include "esp_system.h"
 #include "esp_log.h"
 

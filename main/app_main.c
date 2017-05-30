@@ -167,7 +167,7 @@ void app_main()
     obtain_time();
 
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    asio_test_http();
+    //asio_test_http();
     //test_ssl();
     //asio_test_http2();
 
@@ -175,12 +175,12 @@ void app_main()
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
     //start_web_radio();
     // can't mix cores when allocating interrupts
-    renderer_init(create_renderer_config());
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    audio_recorder_init();
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
     */
+    renderer_init(create_renderer_config());
+    audio_recorder_init();
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 0);
 #endif
 
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());

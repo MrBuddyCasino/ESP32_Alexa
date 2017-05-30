@@ -8,6 +8,6 @@
 #ifndef _INCLUDE_SOUND_STARTUP_H_
 #define _INCLUDE_SOUND_STARTUP_H_
 
-void play_sound(alexa_session_t *alexa_session);
+void play_sound(player_t *player_config);
 
 #endif /* _INCLUDE_SOUND_STARTUP_H_ */

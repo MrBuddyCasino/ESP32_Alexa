@@ -862,27 +862,27 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
 asio_result_t asio_ssl_close(asio_connection_t *conn)
 {
     ESP_LOGI(TAG, "asio_ssl_handle_close");
-    ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
+    ssl_proto_ctx_t *io_ctx = conn->io_ctx;
 
-    xfree(proto_ctx->cc);
-    xfree(proto_ctx->suites);
-    xfree(proto_ctx->suite_ids);
-    VEC_CLEAREXT(*proto_ctx->anchors, &free_ta_contents);
-    VEC_CLEAREXT(proto_ctx->alpn_names, &free_alpn);
-    free_certificates(proto_ctx->chain, proto_ctx->chain_len);
-    free_private_key(proto_ctx->sk);
-    xfree(proto_ctx->iobuf);
+    xfree(io_ctx->cc);
+    xfree(io_ctx->suites);
+    xfree(io_ctx->suite_ids);
+    VEC_CLEAREXT(*io_ctx->anchors, &free_ta_contents);
+    VEC_CLEAREXT(io_ctx->alpn_names, &free_alpn);
+    free_certificates(io_ctx->chain, io_ctx->chain_len);
+    free_private_key(io_ctx->sk);
+    xfree(io_ctx->iobuf);
     if (conn->fd != INVALID_SOCKET) {
         close(conn->fd);
     }
-    xfree(proto_ctx->zc);
-    xfree(proto_ctx->xc);
-    xfree(proto_ctx->xwc);
-    xfree(proto_ctx->dnhash);
-    xfree(proto_ctx->anchors);
+    xfree(io_ctx->zc);
+    xfree(io_ctx->xc);
+    xfree(io_ctx->xwc);
+    xfree(io_ctx->dnhash);
+    xfree(io_ctx->anchors);
 
     /* free delegate resources */
-    proto_ctx->delegate_io_handler(conn);
+    // io_ctx->delegate_io_handler(conn);
 
     return ASIO_OK;
 }
