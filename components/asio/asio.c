@@ -82,75 +82,35 @@ void asio_registry_remove_connection(asio_connection_t *conn)
 
 static void asio_registry_poll_connection(asio_registry_t *registry, asio_connection_t *conn)
 {
-    asio_cb_res_t cb_res;
+    asio_result_t cb_res;
 
-    switch (conn->state)
-    {
-        case ASIO_CONN_NEW:
-            // connect, currently synchronous
-            conn->io_handler(conn, ASIO_EVT_NEW);
-
-            // notify proto
-            if(conn->proto_handler) {
-                conn->proto_handler(conn, ASIO_EVT_CONNECTED);
-            }
-
-            // notify user
-            if(conn->evt_handler) {
-                conn->evt_handler(conn, ASIO_EVT_CONNECTED);
-            }
-
-            break;
-
-        case ASIO_CONN_CONNECTING:
-            break;
-
-        case ASIO_CONN_CONNECTED:
-            ;
-            // we're connected, lets do data transfer
-
-            // perform I/O
-            if(conn->io_handler(conn, ASIO_EVT_SOCKET_READY) != ASIO_CB_OK) {
-                // TODO
-                ESP_LOGE(TAG, "io_cb() failed");
-            }
-
-            // cb_res = conn->proto_handler(conn, ASIO_EVT_SOCKET_READY, registry->user_data);
-
-            // unnecessary?
-            if(conn->evt_handler) {
-                conn->evt_handler(conn, ASIO_EVT_SOCKET_READY);
-            }
-
-            // shall we close?
-            if(conn->user_flags & CONN_FLAG_CLOSE) {
-                conn->state = ASIO_CONN_CLOSING;
-            }
-
-
-            break;
-
-        case ASIO_CONN_CLOSING:
-
-            conn->io_handler(conn, ASIO_EVT_CLOSE);
-
-            // notify proto handler
-            if(conn->proto_handler) {
-                conn->proto_handler(conn, ASIO_EVT_CLOSE);
-            }
-
-            // notify user
-            if(conn->evt_handler)
-                conn->evt_handler(conn, ASIO_EVT_CLOSE);
-
-            conn->state = ASIO_CONN_CLOSED;
-            break;
-
-        case ASIO_CONN_CLOSED:
-            // cleanup
-            asio_registry_remove_connection(conn);
-            break;
+    // connection was closing last round, now its time to say goodbye
+    if(conn->state == ASIO_CONN_CLOSING) {
+        conn->state = ASIO_CONN_CLOSED;
     }
+
+    // perform I/O
+    conn->io_handler(conn);
+
+    // notify proto
+    if(conn->proto_handler) {
+        conn->proto_handler(conn);
+    }
+
+    // notify user
+    if(conn->evt_handler) {
+        conn->evt_handler(conn);
+    }
+
+    if(conn->user_flags & CONN_FLAG_CLOSE) {
+        conn->state = ASIO_CONN_CLOSING;
+    }
+
+    // all handlers have been notified thats its game over, remove
+    if(conn->state == ASIO_CONN_CLOSED) {
+        asio_registry_remove_connection(conn);
+    }
+
 }
 
 int asio_registry_poll(asio_registry_t *registry)

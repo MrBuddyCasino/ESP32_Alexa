@@ -122,9 +122,63 @@ int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
     return fd;
 }
 
-/* perform direct I/O to/from socket to buffers */
-asio_cb_res_t asio_socket_ready(asio_connection_t *conn)
+
+asio_result_t asio_socket_poll(asio_connection_t *conn)
 {
+    // reset flags
+    conn->poll_flags = 0;
+
+    struct timeval tv;
+    tv.tv_sec = 0;
+    tv.tv_usec = 0;
+
+    fd_set readset;
+    fd_set writeset;
+    fd_set errset;
+
+    FD_ZERO(&readset);
+    FD_ZERO(&writeset);
+    FD_ZERO(&errset);
+
+    FD_SET(conn->fd, &readset);
+    FD_SET(conn->fd, &writeset);
+    FD_SET(conn->fd, &errset);
+
+    int n = select(conn->fd + 1, &readset, &writeset, &errset, &tv);
+
+    if (n < 0) {
+        if (errno == EINTR) {
+            return 0;
+        }
+        perror("ERROR: select()");
+        return ASIO_CB_ERR;
+    }
+
+    // nothing interesting happened
+    if (n == 0) {
+        return ASIO_CB_OK;
+    }
+
+    if(FD_ISSET(conn->fd, &writeset))
+        conn->poll_flags |=  POLL_FLAG_SEND;
+
+    if(FD_ISSET(conn->fd, &readset))
+        conn->poll_flags |=  POLL_FLAG_RECV;
+
+    if(FD_ISSET(conn->fd, &errset))
+        conn->poll_flags |=  POLL_FLAG_ERR;
+
+    return ASIO_CB_OK;
+}
+
+
+/* perform direct I/O to/from socket to buffers */
+asio_result_t asio_socket_rw(asio_connection_t *conn)
+{
+
+    /* poll */
+    asio_socket_poll(conn);
+
     /* send */
 
     size_t bytes_unsent = buf_data_unread(conn->send_buf);
@@ -187,54 +241,6 @@ asio_cb_res_t asio_socket_ready(asio_connection_t *conn)
 }
 
 
-asio_poll_res_t asio_socket_poll(asio_connection_t *conn)
-{
-    // reset flags
-    conn->poll_flags = 0;
-
-    struct timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 0;
-
-    fd_set readset;
-    fd_set writeset;
-    fd_set errset;
-
-    FD_ZERO(&readset);
-    FD_ZERO(&writeset);
-    FD_ZERO(&errset);
-
-    FD_SET(conn->fd, &readset);
-    FD_SET(conn->fd, &writeset);
-    FD_SET(conn->fd, &errset);
-
-    int n = select(conn->fd + 1, &readset, &writeset, &errset, &tv);
-
-    if (n < 0) {
-        if (errno == EINTR) {
-            return 0;
-        }
-        perror("ERROR: select()");
-        return ASIO_POLL_ERR;
-    }
-
-    // nothing interesting happened
-    if (n == 0) {
-        return ASIO_POLL_OK;
-    }
-
-    if(FD_ISSET(conn->fd, &writeset))
-        conn->poll_flags |=  POLL_FLAG_SEND;
-
-    if(FD_ISSET(conn->fd, &readset))
-        conn->poll_flags |=  POLL_FLAG_RECV;
-
-    if(FD_ISSET(conn->fd, &errset))
-        conn->poll_flags |=  POLL_FLAG_ERR;
-
-    return ASIO_POLL_OK;
-}
-
 void asio_socket_free(asio_connection_t *conn)
 {
     close(conn->fd);
@@ -243,30 +249,30 @@ void asio_socket_free(asio_connection_t *conn)
 }
 
 
-asio_cb_res_t asio_socket_event(asio_connection_t *conn, asio_event_t event)
+asio_result_t asio_socket_event(asio_connection_t *conn)
 {
-    switch (event) {
-        case ASIO_EVT_NEW:
+    switch(conn->state)
+    {
+        case ASIO_CONN_NEW:
             ;
             int fd = asio_socket_connect(conn->url->host, conn->url->port, true);
             if(fd < 0) {
-                conn->state = ASIO_CONN_CLOSED;
+                conn->state = ASIO_CONN_CLOSING;
                 return ASIO_CB_ERR;
             }
             conn->fd = fd;
             conn->state = ASIO_CONN_CONNECTED;
-            conn->poll_handler = asio_socket_poll;
             break;
 
-        case ASIO_EVT_CONNECTED:
+        case ASIO_CONN_CONNECTED:
+            return asio_socket_rw(conn);
             break;
 
-        case ASIO_EVT_CLOSE:
+        case ASIO_CONN_CLOSING:
             asio_socket_free(conn);
             break;
 
-        case ASIO_EVT_SOCKET_READY:
-            return asio_socket_ready(conn);
+        default:
             break;
     }
 
@@ -293,6 +299,7 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
     conn->fd = -1;
     conn->io_handler = asio_socket_event;
     conn->state = ASIO_CONN_NEW;
+    conn->poll_handler = asio_socket_poll;
 
     /* ssl has its own buffers */
     if(transport_proto != ASIO_TCP_SSL) {

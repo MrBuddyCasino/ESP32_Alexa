@@ -11,7 +11,7 @@
 int asio_socket_connect(const char *host, uint16_t port, int verbose);
 
 /* poll handler for socket connection */
-asio_poll_res_t asio_socket_poll(asio_connection_t *conn, int *flags);
+asio_result_t asio_socket_poll(asio_connection_t *conn, int *flags);
 
 
 asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data);

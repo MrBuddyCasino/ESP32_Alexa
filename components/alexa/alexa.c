@@ -433,8 +433,10 @@ int net_send_event(alexa_session_t *alexa_session,
 {
 
     // h2 will take ownership
-    nghttp2_data_provider data_provider_struct = { .read_callback =
-            read_callback, .source.ptr = alexa_session->stream_events };
+    nghttp2_data_provider data_provider_struct = {
+            .read_callback = read_callback,
+            .source.ptr = alexa_session->stream_events
+    };
 
     // add headers
     char *auth_header = build_auth_header(alexa_session->auth_token);

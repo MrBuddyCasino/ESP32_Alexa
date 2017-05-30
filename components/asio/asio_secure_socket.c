@@ -608,11 +608,11 @@ typedef struct {
 } ssl_proto_ctx_t;
 
 
-asio_cb_res_t asio_ssl_connect(asio_connection_t *conn, asio_event_t event)
+asio_result_t asio_ssl_connect(asio_connection_t *conn)
 {
     ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
 
-    if(proto_ctx->delegate_io_handler(conn, event) != ASIO_CB_OK) {
+    if(proto_ctx->delegate_io_handler(conn) != ASIO_CB_OK) {
         return ASIO_CB_CLOSE_CONNECTION;
     }
 
@@ -859,7 +859,7 @@ asio_cb_res_t asio_ssl_connect(asio_connection_t *conn, asio_event_t event)
     return ASIO_CB_OK;
 }
 
-asio_cb_res_t asio_ssl_close(asio_connection_t *conn)
+asio_result_t asio_ssl_close(asio_connection_t *conn)
 {
     ESP_LOGI(TAG, "asio_ssl_handle_close");
     ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
@@ -882,15 +882,14 @@ asio_cb_res_t asio_ssl_close(asio_connection_t *conn)
     xfree(proto_ctx->anchors);
 
     /* free delegate resources */
-    proto_ctx->delegate_io_handler(conn, ASIO_EVT_CLOSE);
+    proto_ctx->delegate_io_handler(conn);
 
     return ASIO_CB_OK;
 }
 
 
 /* see brssl.h */
-int
-asio_ssl_run_engine(asio_connection_t *conn)
+int asio_ssl_run_engine(asio_connection_t *conn)
 {
     ssl_proto_ctx_t *io_ctx = conn->io_ctx;
     br_ssl_engine_context *cc = &io_ctx->cc->eng;
@@ -899,7 +898,7 @@ asio_ssl_run_engine(asio_connection_t *conn)
     int trace = io_ctx->trace;
 
     /* poll socket */
-    if(conn->poll_handler(conn) == ASIO_POLL_ERR) {
+    if(conn->poll_handler(conn) == ASIO_CB_ERR) {
         ESP_LOGE(TAG, "poll failed");
         conn->user_flags |= CONN_FLAG_CLOSE;
         return 0;
@@ -1069,22 +1068,23 @@ asio_ssl_run_engine(asio_connection_t *conn)
     return ASIO_CB_OK;
 }
 
-asio_cb_res_t asio_io_handler_ssl(asio_connection_t *conn, asio_event_t event)
+asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
 {
-    switch (event) {
-        case ASIO_EVT_NEW:
-            return asio_ssl_connect(conn, event);
+    switch(conn->state)
+    {
+        case ASIO_CONN_NEW:
+            return asio_ssl_connect(conn);
             break;
 
-        case ASIO_EVT_CONNECTED:
-            break;
-
-        case ASIO_EVT_SOCKET_READY:
+        case ASIO_CONN_CONNECTED:
             return asio_ssl_run_engine(conn);
             break;
 
-        case ASIO_EVT_CLOSE:
+        case ASIO_CONN_CLOSING:
             return asio_ssl_close(conn);
+            break;
+
+        default:
             break;
     }
 

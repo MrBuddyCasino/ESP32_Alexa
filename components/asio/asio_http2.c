@@ -124,12 +124,12 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
     return sentlen;
 }
 
-asio_cb_res_t asio_io_handler_http2(asio_connection_t *conn, asio_event_t event, void *user_data)
+asio_result_t asio_io_handler_http2(asio_connection_t *conn)
 {
     http2_session_data_t *http2_session = conn->proto_ctx;
 
-    switch (event) {
-        case ASIO_EVT_CLOSE:
+    switch (conn->state) {
+        case ASIO_CONN_CLOSING:
             free_http2_session_data(http2_session, 0);
             break;
 

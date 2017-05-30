@@ -21,20 +21,10 @@ enum conn_flags {
   , CONN_FLAG_CLOSE = 1 << 1
 };
 
-typedef enum
-{
-    ASIO_EVT_NEW = 1, ASIO_EVT_CONNECTED, ASIO_EVT_CLOSE, ASIO_EVT_SOCKET_READY
-} asio_event_t;
-
 
 typedef enum {
-    ASIO_CB_OK = 1, ASIO_CB_ERR = -1, ASIO_CB_CLOSE_CONNECTION = -2
-} asio_cb_res_t;
-
-
-typedef enum {
-    ASIO_POLL_OK = 0, ASIO_POLL_ERR = -1
-} asio_poll_res_t;
+    ASIO_CB_OK = 0, ASIO_CB_ERR = -1, ASIO_CB_CLOSE_CONNECTION = -2
+} asio_result_t;
 
 
 typedef enum
@@ -57,9 +47,9 @@ typedef struct asio_connection_t asio_connection_t;
 typedef struct asio_registry_t asio_registry_t;
 
 
-typedef asio_cb_res_t (*asio_event_handler_t)(struct asio_connection_t *conn, asio_event_t event);
+typedef asio_result_t (*asio_event_handler_t)(struct asio_connection_t *conn);
 
-typedef asio_poll_res_t (*asio_poll_t)(asio_connection_t *conn);
+typedef asio_result_t (*asio_poll_t)(asio_connection_t *conn);
 
 /* app send/recv data */
 typedef size_t (*asio_buf_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);

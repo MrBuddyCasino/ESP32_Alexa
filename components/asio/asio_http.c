@@ -54,7 +54,7 @@ size_t asio_http_write_request(asio_connection_t *conn, unsigned char* buf, size
     return wlen;
 }
 
-asio_cb_res_t asio_http_handle_close(asio_connection_t *conn)
+asio_result_t asio_http_handle_close(asio_connection_t *conn)
 {
     // ESP_LOGI(TAG, "destroying http_proto_ctx_t");
     if(conn->proto_ctx != NULL) {
@@ -113,21 +113,18 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
     return wlen;
 }
 
-asio_cb_res_t asio_proto_handler_http(asio_connection_t *conn, asio_event_t event)
+asio_result_t asio_proto_handler_http(asio_connection_t *conn)
 {
-    switch (event) {
-        case ASIO_EVT_NEW:
+    switch (conn->state) {
+        case ASIO_CONN_NEW:
             http_status = HTTP_IDLE;
             break;
 
-        case ASIO_EVT_CONNECTED:
-            break;
-
-        case ASIO_EVT_SOCKET_READY:
-            break;
-
-        case ASIO_EVT_CLOSE:
+        case ASIO_CONN_CLOSING:
             asio_http_handle_close(conn);
+            break;
+
+        default:
             break;
     }
 
