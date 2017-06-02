@@ -31,30 +31,30 @@ void asio_registry_init(asio_registry_t **registry, void *user_data)
 {
     *registry = calloc(1, sizeof(asio_registry_t));
     (*registry)->user_data = user_data;
-    (*registry)->max_connections = 16;
+    (*registry)->max_tasks = 16;
 }
 
 void asio_registry_destroy(asio_registry_t *registry)
 {
-    for (int i = 0; i < registry->max_connections; i++) {
-        if (registry->connections[i] != NULL) {
-            asio_registry_remove_connection(registry->connections[i]);
-            registry->connections[i] = NULL;
+    for (int i = 0; i < registry->max_tasks; i++) {
+        if (registry->tasks[i] != NULL) {
+            asio_registry_remove_task(registry->tasks[i]);
+            registry->tasks[i] = NULL;
         }
     }
 
     free(registry);
 }
 
-int asio_registry_add_connection(asio_registry_t *registry, asio_connection_t *conn)
+int asio_registry_add_task(asio_registry_t *registry, asio_task_t *task)
 {
-    if(conn->url) {
-        ESP_LOGI(TAG, "adding connection: %s", conn->url->authority);
+    if(task->url) {
+        ESP_LOGI(TAG, "adding connection: %s", task->url->authority);
     }
 
-    for (int i = 0; i < registry->max_connections; i++) {
-        if (registry->connections[i] == NULL) {
-            registry->connections[i] = conn;
+    for (int i = 0; i < registry->max_tasks; i++) {
+        if (registry->tasks[i] == NULL) {
+            registry->tasks[i] = task;
             return 0;
         }
     }
@@ -62,7 +62,7 @@ int asio_registry_add_connection(asio_registry_t *registry, asio_connection_t *c
     return -1;
 }
 
-void asio_registry_remove_connection(asio_connection_t *conn)
+void asio_registry_remove_task(asio_task_t *conn)
 {
     if(conn == NULL) return;
 
@@ -71,9 +71,9 @@ void asio_registry_remove_connection(asio_connection_t *conn)
     }
 
     asio_registry_t *registry = conn->registry;
-    for (int i = 0; i < registry->max_connections; i++) {
-        if (registry->connections[i] == conn) {
-            registry->connections[i] = NULL;
+    for (int i = 0; i < registry->max_tasks; i++) {
+        if (registry->tasks[i] == conn) {
+            registry->tasks[i] = NULL;
             break;
         }
     }
@@ -87,47 +87,47 @@ void asio_registry_remove_connection(asio_connection_t *conn)
 }
 
 
-static void asio_registry_poll_connection(asio_registry_t *registry, asio_connection_t *conn)
+static void asio_registry_poll_connection(asio_registry_t *registry, asio_task_t *task)
 {
     asio_result_t cb_res;
 
     // perform I/O
-    conn->io_handler(conn);
+    task->io_handler(task);
 
     // notify proto
-    if(conn->proto_handler) {
-        conn->proto_handler(conn);
+    if(task->proto_handler) {
+        task->proto_handler(task);
     }
 
     // notify user
-    if(conn->evt_handler) {
-        conn->evt_handler(conn);
+    if(task->evt_handler) {
+        task->evt_handler(task);
     }
 
-    if(conn->task_flags & TASK_FLAG_TERMINATE) {
-        conn->state = ASIO_TASK_STOPPING;
-        conn->task_flags = 0;
+    if(task->task_flags & TASK_FLAG_TERMINATE) {
+        task->state = ASIO_TASK_STOPPING;
+        task->task_flags = 0;
     }
 
     // connection was closing last round, now its time to say goodbye
-    if(conn->state == ASIO_TASK_STOPPING) {
+    if(task->state == ASIO_TASK_STOPPING) {
 
-        conn->io_handler(conn);
+        task->io_handler(task);
 
-        if(conn->proto_handler) {
-            conn->proto_handler(conn);
+        if(task->proto_handler) {
+            task->proto_handler(task);
         }
 
-        if(conn->evt_handler) {
-            conn->evt_handler(conn);
+        if(task->evt_handler) {
+            task->evt_handler(task);
         }
 
-        conn->state = ASIO_TASK_STOPPED;
+        task->state = ASIO_TASK_STOPPED;
     }
 
     // all handlers have been notified thats its game over, remove
-    if(conn->state == ASIO_TASK_STOPPED) {
-        asio_registry_remove_connection(conn);
+    if(task->state == ASIO_TASK_STOPPED) {
+        asio_registry_remove_task(task);
     }
 
 }
@@ -135,8 +135,8 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
 int asio_registry_poll(asio_registry_t *registry)
 {
     uint8_t num_conn = 0;
-    for (int i = 0; i < registry->max_connections; i++) {
-        asio_connection_t *conn = registry->connections[i];
+    for (int i = 0; i < registry->max_tasks; i++) {
+        asio_task_t *conn = registry->tasks[i];
         if (conn == NULL) continue;
 
         asio_registry_poll_connection(registry, conn);

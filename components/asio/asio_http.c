@@ -36,7 +36,7 @@ typedef struct {
 
 
 /* socket connected, write http request */
-size_t asio_http_write_request(asio_connection_t *conn, unsigned char* buf, size_t len)
+size_t asio_http_write_request(asio_task_t *conn, unsigned char* buf, size_t len)
 {
     http_proto_ctx_t *proto_ctx = conn->proto_ctx;
 
@@ -55,7 +55,7 @@ size_t asio_http_write_request(asio_connection_t *conn, unsigned char* buf, size
     return wlen;
 }
 
-asio_result_t asio_http_handle_close(asio_connection_t *conn)
+asio_result_t asio_http_handle_close(asio_task_t *conn)
 {
     // ESP_LOGI(TAG, "destroying http_proto_ctx_t");
     if(conn->proto_ctx != NULL) {
@@ -71,7 +71,7 @@ asio_result_t asio_http_handle_close(asio_connection_t *conn)
 
 
 /* send received bytes to http parser */
-static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
+static size_t asio_app_recv_cb(asio_task_t *conn, unsigned char* buf, size_t len)
 {
     http_proto_ctx_t *proto_ctx = conn->proto_ctx;
 
@@ -96,7 +96,7 @@ typedef enum {
 static http_state_t http_status = HTTP_IDLE;
 
 /* read bytes from app */
-static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
+static size_t asio_app_send_cb(asio_task_t *conn, unsigned char* buf, size_t len)
 {
     size_t wlen = 0;
     switch(http_status)
@@ -114,7 +114,7 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
     return wlen;
 }
 
-asio_result_t asio_proto_handler_http(asio_connection_t *conn)
+asio_result_t asio_proto_handler_http(asio_task_t *conn)
 {
     switch (conn->state) {
         case ASIO_TASK_NEW:
@@ -135,7 +135,7 @@ asio_result_t asio_proto_handler_http(asio_connection_t *conn)
 
 int asio_new_http_request(asio_registry_t *registry, char *uri, char *method, http_header_t headers[], uint16_t header_len, http_parser_settings *callbacks, asio_event_handler_t cb, void *user_data)
 {
-    asio_connection_t *conn;
+    asio_task_t *conn;
 
     if(starts_with(uri, "https://"))
     {

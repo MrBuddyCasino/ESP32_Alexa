@@ -28,17 +28,18 @@ typedef struct {
 } asio_generic_ctx_t;
 
 
-void asio_generic_destroy(asio_connection_t *conn)
+void asio_generic_destroy(asio_task_t *conn)
 {
     free(conn->io_ctx);
 }
 
-asio_result_t asio_generic_handler(asio_connection_t *conn)
+asio_result_t asio_generic_handler(asio_task_t *conn)
 {
     asio_generic_ctx_t *ctx = conn->io_ctx;
 
     switch(conn->state)
     {
+        case ASIO_TASK_NEW:
         case ASIO_TASK_RUNNING:
             if (ctx->callback(conn, ctx->cb_arg, conn->user_data) != ASIO_OK) {
                 conn->task_flags |= TASK_FLAG_TERMINATE;
@@ -58,9 +59,9 @@ asio_result_t asio_generic_handler(asio_connection_t *conn)
 }
 
 
-asio_connection_t *asio_new_generic_task(asio_registry_t *registry, asio_generic_callback_t callback, void *cb_arg, void *user_data)
+asio_task_t *asio_new_generic_task(asio_registry_t *registry, asio_generic_callback_t callback, void *cb_arg, void *user_data)
 {
-    asio_connection_t *conn = calloc(1, sizeof(asio_connection_t));
+    asio_task_t *conn = calloc(1, sizeof(asio_task_t));
     if(conn == NULL) {
         ESP_LOGE(TAG, "calloc() failed: asio_connection_t");
         return NULL;
@@ -68,7 +69,7 @@ asio_connection_t *asio_new_generic_task(asio_registry_t *registry, asio_generic
 
     conn->registry = registry;
     conn->io_handler = asio_generic_handler;
-    conn->state = ASIO_TASK_RUNNING;
+    conn->state = ASIO_TASK_NEW;
     conn->user_data = user_data;
 
     asio_generic_ctx_t *generic_ctx = calloc(1, sizeof(asio_generic_ctx_t));
@@ -76,9 +77,9 @@ asio_connection_t *asio_new_generic_task(asio_registry_t *registry, asio_generic
     generic_ctx->callback = callback;
     generic_ctx->cb_arg = cb_arg;
 
-    if(asio_registry_add_connection(registry, conn) < 0) {
+    if(asio_registry_add_task(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
-        asio_registry_remove_connection(conn);
+        asio_registry_remove_task(conn);
         return NULL;
     }
 

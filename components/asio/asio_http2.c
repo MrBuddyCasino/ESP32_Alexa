@@ -16,8 +16,8 @@
 #include "url_parser.h"
 #include "brssl.h"
 #include "nghttp2/nghttp2.h"
-#include "nghttp2_client.h"
 
+#include "../nghttp_client/include/nghttp2_client.h"
 #include "asio.h"
 #include "asio_socket.h"
 #include "asio_secure_socket.h"
@@ -43,7 +43,7 @@ int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
                 NULL, 0);
 
         // set flag
-        asio_connection_t *conn = session_data->conn;
+        asio_task_t *conn = session_data->conn;
         conn->task_flags |= TASK_FLAG_TERMINATE;
     }
 
@@ -52,7 +52,7 @@ int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
 
 
 /* send received bytes to nghttp2 */
-static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
+static size_t asio_app_recv_cb(asio_task_t *conn, unsigned char* buf, size_t len)
 {
     http2_session_data_t *http2_session = conn->proto_ctx;
     nghttp2_session *h2 = http2_session->h2_session;
@@ -80,7 +80,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
 }
 
 /* read bytes from nghttp2 */
-static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size_t len)
+static size_t asio_app_send_cb(asio_task_t *conn, unsigned char* buf, size_t len)
 {
     http2_session_data_t *http2_session = conn->proto_ctx;
     nghttp2_session *h2 = http2_session->h2_session;
@@ -126,7 +126,7 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
     return sentlen;
 }
 
-asio_result_t asio_io_handler_http2(asio_connection_t *conn)
+asio_result_t asio_io_handler_http2(asio_task_t *conn)
 {
     http2_session_data_t *http2_session = conn->proto_ctx;
 
@@ -148,7 +148,7 @@ int asio_new_http2_session(
         http2_session_data_t *http2_session,
         char *uri)
 {
-    asio_connection_t *conn;
+    asio_task_t *conn;
 
     /* do we need this? */
     void *session_user_data = NULL;
@@ -173,7 +173,7 @@ int asio_new_http2_session(
     if (conn == NULL) {
         ESP_LOGE(TAG, "failed to create connection");
         free_http2_session_data(http2_session, 0);
-        asio_registry_remove_connection(conn);
+        asio_registry_remove_task(conn);
         return ASIO_ERR;
     }
 

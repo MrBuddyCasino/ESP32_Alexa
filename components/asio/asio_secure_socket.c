@@ -611,7 +611,7 @@ typedef struct {
 } ssl_ctx_t;
 
 
-asio_result_t asio_ssl_connect(asio_connection_t *conn)
+asio_result_t asio_ssl_connect(asio_task_t *conn)
 {
     ssl_ctx_t *io_ctx = conn->io_ctx;
 
@@ -867,7 +867,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     return ASIO_OK;
 }
 
-asio_result_t asio_ssl_close(asio_connection_t *conn)
+asio_result_t asio_ssl_close(asio_task_t *conn)
 {
     ESP_LOGI(TAG, "asio_ssl_handle_close");
     ssl_ctx_t *io_ctx = conn->io_ctx;
@@ -898,7 +898,7 @@ asio_result_t asio_ssl_close(asio_connection_t *conn)
 
 
 /* see brssl.h */
-asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
+asio_result_t asio_ssl_run_engine(asio_task_t *conn)
 {
     ssl_ctx_t *io_ctx = conn->io_ctx;
     br_ssl_engine_context *cc = &io_ctx->cc->eng;
@@ -1077,7 +1077,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
     return ASIO_OK;
 }
 
-asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
+asio_result_t asio_io_handler_ssl(asio_task_t *conn)
 {
     switch(conn->state)
     {
@@ -1101,10 +1101,10 @@ asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
 }
 
 
-asio_connection_t *asio_new_ssl_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, int bidi, char *alpn, cipher_suite *suites, size_t num_suites, void *user_data)
+asio_task_t *asio_new_ssl_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, int bidi, char *alpn, cipher_suite *suites, size_t num_suites, void *user_data)
 {
 
-    asio_connection_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
+    asio_task_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
 
     ssl_ctx_t *io_ctx = calloc(1, sizeof(ssl_ctx_t));
 

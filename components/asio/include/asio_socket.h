@@ -36,7 +36,7 @@ int asio_socket_connect(const char *host, uint16_t port, bool verbose);
 asio_result_t asio_socket_poll(asio_socket_context_t *io_ctx);
 
 /* create a new plaintext socket connection */
-asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data);
+asio_task_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data);
 
 /* release resources */
 void asio_socket_free(asio_socket_context_t *io_ctx);

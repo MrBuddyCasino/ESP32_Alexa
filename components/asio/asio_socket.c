@@ -176,7 +176,7 @@ asio_result_t asio_socket_poll(asio_socket_context_t *io_ctx)
 
 
 /* perform direct I/O to/from socket to buffers */
-asio_result_t asio_socket_rw(asio_connection_t *conn)
+asio_result_t asio_socket_rw(asio_task_t *conn)
 {
     asio_socket_context_t *io_ctx = conn->io_ctx;
 
@@ -256,7 +256,7 @@ void asio_socket_free(asio_socket_context_t *io_ctx)
 }
 
 
-asio_result_t asio_socket_event(asio_connection_t *conn)
+asio_result_t asio_socket_event(asio_task_t *conn)
 {
     asio_socket_context_t *io_ctx = conn->io_ctx;
     switch(conn->state)
@@ -287,13 +287,13 @@ asio_result_t asio_socket_event(asio_connection_t *conn)
     return ASIO_OK;
 }
 
-asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data)
+asio_task_t *asio_new_socket_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, void *user_data)
 {
     url_t *url = url_parse(uri);
     if(!url)
         return NULL;
 
-    asio_connection_t *conn = calloc(1, sizeof(asio_connection_t));
+    asio_task_t *conn = calloc(1, sizeof(asio_task_t));
     if(conn == NULL) {
         ESP_LOGE(TAG, "calloc() failed: asio_connection_t");
         return NULL;
@@ -315,9 +315,9 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
     conn->io_handler = asio_socket_event;
     conn->state = ASIO_TASK_NEW;
 
-    if(asio_registry_add_connection(registry, conn) < 0) {
+    if(asio_registry_add_task(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
-        asio_registry_remove_connection(conn);
+        asio_registry_remove_task(conn);
         return NULL;
     }
 

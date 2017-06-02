@@ -26,25 +26,25 @@ typedef enum
     ASIO_TASK_RUNNING,
     ASIO_TASK_STOPPING,
     ASIO_TASK_STOPPED
-} asio_conn_state_t;
+} asio_task_state_t;
 
 
-typedef struct asio_connection_t asio_connection_t;
+typedef struct asio_task_t asio_task_t;
 typedef struct asio_registry_t asio_registry_t;
 
 
-typedef asio_result_t (*asio_event_handler_t)(struct asio_connection_t *conn);
+typedef asio_result_t (*asio_event_handler_t)(struct asio_task_t *task);
 
 
 /* app send/recv data */
-typedef size_t (*asio_on_data_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);
+typedef size_t (*asio_on_data_transfer_t) (asio_task_t *task, unsigned char* buf, size_t len);
 
 
-struct asio_connection_t
+struct asio_task_t
 {
     asio_registry_t *registry;
     url_t *url;
-    asio_conn_state_t state;
+    asio_task_state_t state;
     asio_event_handler_t evt_handler;
     void *user_data;
     int task_flags;
@@ -67,8 +67,8 @@ struct asio_connection_t
 
 struct asio_registry_t
 {
-    uint16_t max_connections;
-    asio_connection_t *connections[16];
+    uint16_t max_tasks;
+    asio_task_t *tasks[16];
     void *user_data;
 };
 
@@ -79,8 +79,8 @@ void asio_registry_init(asio_registry_t **registry, void *user_data);
 
 void asio_registry_destroy(asio_registry_t *registry);
 
-int asio_registry_add_connection(asio_registry_t *registry, asio_connection_t *connection);
+int asio_registry_add_task(asio_registry_t *registry, asio_task_t *task);
 
-void asio_registry_remove_connection(asio_connection_t *conn);
+void asio_registry_remove_task(asio_task_t *task);
 
 #endif /* _INCLUDE_EVENT_LOOP_H_ */

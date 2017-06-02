@@ -26,7 +26,7 @@ int cb_on_message_complete(http_parser* parser)
 {
     printf("cb_on_message_complete\n");
 
-    asio_connection_t *conn = parser->data;
+    asio_task_t *conn = parser->data;
     if(http_should_keep_alive(parser)) {
         ESP_LOGE(TAG, "http_should_keep_alive");
         conn->task_flags |= TASK_FLAG_TERMINATE;
@@ -44,7 +44,7 @@ int http_data(http_parser* parser, const char *at, size_t length)
     return 0;
 }
 
-asio_result_t asio_event_handler(struct asio_connection_t *conn)
+asio_result_t asio_event_handler(struct asio_task_t *conn)
 {
     // printf("asio cb event: %d\n", event);
     return ASIO_OK;

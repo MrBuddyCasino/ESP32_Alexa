@@ -44,7 +44,7 @@ static void IRAM_ATTR gpio_isr_handler(void* arg)
 }
 
 
-void asio_gpio_init(asio_connection_t *conn)
+void asio_gpio_init(asio_task_t *conn)
 {
     asio_gpio_context_t *gpio_ctx = conn->io_ctx;
 
@@ -73,7 +73,7 @@ void asio_gpio_init(asio_connection_t *conn)
 }
 
 
-void asio_gpio_destroy(asio_connection_t *conn)
+void asio_gpio_destroy(asio_task_t *conn)
 {
     asio_gpio_context_t *gpio_ctx = conn->io_ctx;
 
@@ -84,7 +84,7 @@ void asio_gpio_destroy(asio_connection_t *conn)
 }
 
 
-void asio_gpio_run(asio_connection_t *conn)
+void asio_gpio_run(asio_task_t *conn)
 {
     asio_gpio_context_t *gpio_ctx = conn->io_ctx;
     uint32_t io_num;
@@ -98,7 +98,7 @@ void asio_gpio_run(asio_connection_t *conn)
 }
 
 
-asio_result_t *asio_gpio_event(asio_connection_t *conn)
+asio_result_t *asio_gpio_event(asio_task_t *conn)
 {
     switch(conn->state)
     {
@@ -123,9 +123,9 @@ asio_result_t *asio_gpio_event(asio_connection_t *conn)
 }
 
 
-asio_connection_t *asio_new_gpio_task(asio_registry_t *registry, gpio_num_t gpio_num, asio_gpio_handler_t callback, void *user_data)
+asio_task_t *asio_new_gpio_task(asio_registry_t *registry, gpio_num_t gpio_num, asio_gpio_handler_t callback, void *user_data)
 {
-    asio_connection_t *conn = calloc(1, sizeof(asio_connection_t));
+    asio_task_t *conn = calloc(1, sizeof(asio_task_t));
     if(conn == NULL) {
         ESP_LOGE(TAG, "calloc() failed: asio_connection_t");
         return NULL;
@@ -142,9 +142,9 @@ asio_connection_t *asio_new_gpio_task(asio_registry_t *registry, gpio_num_t gpio
     gpio_ctx->gpio_num = gpio_num;
     gpio_ctx->gpio_evt_queue = xQueueCreate(1, sizeof(gpio_num_t));
 
-    if(asio_registry_add_connection(registry, conn) < 0) {
+    if(asio_registry_add_task(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
-        asio_registry_remove_connection(conn);
+        asio_registry_remove_task(conn);
         return NULL;
     }
 

@@ -19,11 +19,12 @@
 #include "freertos/task.h"
 #include "freertos/event_groups.h"
 
-#include "nghttp2_client.h"
 #include "multipart_parser.h"
 
 #include "audio_player.h"
 #include "alexa.h"
+
+#include "../nghttp_client/include/nghttp2_client.h"
 #include "audio_recorder.h"
 #include "controls.h"
 #include "common_buffer.h"
@@ -506,7 +507,7 @@ void alexa_gpio_handler(gpio_num_t io_num, void *user_data)
 }
 
 
-asio_result_t on_auth_token_valid_cb(asio_connection_t *conn, void *arg, void *user_data)
+asio_result_t on_auth_token_valid_cb(asio_task_t *conn, void *arg, void *user_data)
 {
     EventGroupHandle_t event_group = arg;
     alexa_session_t *alexa_session = user_data;
@@ -520,7 +521,7 @@ asio_result_t on_auth_token_valid_cb(asio_connection_t *conn, void *arg, void *u
     return ASIO_OK;
 }
 
-asio_result_t on_downchan_connected_cb(asio_connection_t *conn, void *arg, void *user_data)
+asio_result_t on_downchan_connected_cb(asio_task_t *conn, void *arg, void *user_data)
 {
     EventGroupHandle_t event_group = arg;
     alexa_session_t *alexa_session = user_data;

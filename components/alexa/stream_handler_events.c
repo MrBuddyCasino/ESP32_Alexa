@@ -14,8 +14,8 @@
 #include "esp_log.h"
 #include "cJSON.h"
 #include "nghttp2/nghttp2.h"
-#include "nghttp2_client.h"
 
+#include "../nghttp_client/include/nghttp2_client.h"
 #include "multipart_parser.h"
 #include "common_buffer.h"
 #include "audio_player.h"

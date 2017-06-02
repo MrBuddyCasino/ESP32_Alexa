@@ -12,7 +12,8 @@
 #include "common_buffer.h"
 #include "url_parser.h"
 #include "nghttp2/nghttp2.h"
-#include "nghttp2_client.h"
+
+#include "../nghttp_client/include/nghttp2_client.h"
 #include "asio.h"
 #include "asio_http2.h"
 

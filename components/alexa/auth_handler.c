@@ -14,8 +14,9 @@
 #include "freertos/event_groups.h"
 
 #include "nghttp2/nghttp2.h"
-#include "nghttp2_client.h"
 #include "cJSON.h"
+
+#include "../nghttp_client/include/nghttp2_client.h"
 #include "multipart_parser.h"
 
 #include "audio_player.h"
