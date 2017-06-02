@@ -8,14 +8,28 @@
 #ifndef _INCLUDE_ASIO_SOCKET_H_
 #define _INCLUDE_ASIO_SOCKET_H_
 
+typedef enum
+{
+    ASIO_TCP = 1, ASIO_TCP_SSL = 2
+} asio_transport_t;
 
+enum poll_flags
+{
+    POLL_FLAG_RECV  = 1 << 0
+  , POLL_FLAG_SEND  = 1 << 1
+  , POLL_FLAG_ERR   = 1 << 2
+};
+
+/* I/O context for sockets */
 typedef struct {
     buffer_t *recv_buf;
     buffer_t *send_buf;
     int fd;
+    int poll_flags;
 } asio_socket_context_t;
 
 
+/* connect a socket */
 int asio_socket_connect(const char *host, uint16_t port, bool verbose);
 
 /* poll handler for socket connection */

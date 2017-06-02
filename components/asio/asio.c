@@ -104,9 +104,9 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
         conn->evt_handler(conn);
     }
 
-    if(conn->user_flags & TASK_FLAG_TERMINATE) {
+    if(conn->task_flags & TASK_FLAG_TERMINATE) {
         conn->state = ASIO_TASK_STOPPING;
-        conn->user_flags = 0;
+        conn->task_flags = 0;
     }
 
     // connection was closing last round, now its time to say goodbye

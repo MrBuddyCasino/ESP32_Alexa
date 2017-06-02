@@ -616,7 +616,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     ssl_ctx_t *proto_ctx = conn->io_ctx;
 
     if(proto_ctx->delegate_io_handler(conn) != ASIO_OK) {
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 
@@ -904,7 +904,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
     /* poll socket */
     if(asio_socket_poll(conn) != ASIO_OK) {
         ESP_LOGE(TAG, "poll failed");
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 
@@ -921,7 +921,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
     st = br_ssl_engine_current_state(cc);
     if (st == BR_SSL_CLOSED) {
         handle_closed(verbose, cc);
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 
@@ -953,8 +953,8 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
     */
 
     recvapp_ok = recvapp;
-    sendrec_ok = sendrec && (conn->poll_flags & POLL_FLAG_SEND);
-    recvrec_ok = recvrec && (conn->poll_flags & POLL_FLAG_RECV);
+    sendrec_ok = sendrec && (io_ctx->delegate_io_ctx->poll_flags & POLL_FLAG_SEND);
+    recvrec_ok = recvrec && (io_ctx->delegate_io_ctx->poll_flags & POLL_FLAG_RECV);
     sendapp_ok = sendapp;
 
     // ESP_LOGI(TAG, "recvapp_ok %d sendrec_ok %d recvrec_ok %d sendapp_ok %d", recvapp_ok, sendrec_ok, recvrec_ok, sendapp_ok);
@@ -1005,7 +1005,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
             if (verbose) {
                 fprintf(stderr, "socket closed...\n");
             }
-            conn->user_flags |= TASK_FLAG_TERMINATE;
+            conn->task_flags |= TASK_FLAG_TERMINATE;
             return ASIO_ERR;
         }
         if (trace) {
@@ -1036,7 +1036,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
                 fprintf(stderr, "socket closed...\n");
             }
 
-            conn->user_flags |= TASK_FLAG_TERMINATE;
+            conn->task_flags |= TASK_FLAG_TERMINATE;
             return ASIO_ERR;
         }
         if (trace) {

@@ -41,7 +41,7 @@ asio_result_t asio_generic_handler(asio_connection_t *conn)
     {
         case ASIO_TASK_RUNNING:
             if (ctx->callback(conn, ctx->cb_arg, conn->user_data) != ASIO_OK) {
-                conn->user_flags |= TASK_FLAG_TERMINATE;
+                conn->task_flags |= TASK_FLAG_TERMINATE;
             }
             break;
 

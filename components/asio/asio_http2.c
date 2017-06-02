@@ -44,7 +44,7 @@ int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
 
         // set flag
         asio_connection_t *conn = session_data->conn;
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
     }
 
     return 0;
@@ -72,7 +72,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
 
     // close connection?
     if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         ESP_LOGE(TAG, "closing stream");
     }
 
@@ -119,7 +119,7 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
 
     // close connection?
     if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         ESP_LOGE(TAG, "closing stream");
     }
 

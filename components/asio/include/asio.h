@@ -8,14 +8,6 @@
 #ifndef _INCLUDE_EVENT_LOOP_H_
 #define _INCLUDE_EVENT_LOOP_H_
 
-
-enum poll_flags
-{
-    POLL_FLAG_RECV  = 1 << 0
-  , POLL_FLAG_SEND  = 1 << 1
-  , POLL_FLAG_ERR   = 1 << 2
-};
-
 enum task_flags {
     TASK_FLAG_NONE  = 1 << 0
   , TASK_FLAG_TERMINATE = 1 << 1
@@ -25,12 +17,6 @@ enum task_flags {
 typedef enum {
     ASIO_OK = 0, ASIO_ERR = -1
 } asio_result_t;
-
-
-typedef enum
-{
-    ASIO_TCP = 1, ASIO_TCP_SSL = 2
-} asio_transport_t;
 
 
 typedef enum
@@ -49,10 +35,10 @@ typedef struct asio_registry_t asio_registry_t;
 
 typedef asio_result_t (*asio_event_handler_t)(struct asio_connection_t *conn);
 
-typedef asio_result_t (*asio_poll_t)(asio_connection_t *conn);
 
 /* app send/recv data */
 typedef size_t (*asio_on_data_transfer_t) (asio_connection_t *conn, unsigned char* buf, size_t len);
+
 
 struct asio_connection_t
 {
@@ -61,8 +47,7 @@ struct asio_connection_t
     asio_conn_state_t state;
     asio_event_handler_t evt_handler;
     void *user_data;
-    int user_flags;
-    int poll_flags;
+    int task_flags;
 
     asio_event_handler_t io_handler;
     void *io_ctx;

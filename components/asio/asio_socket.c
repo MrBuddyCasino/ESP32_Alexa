@@ -130,7 +130,7 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
     asio_socket_context_t *io_ctx = conn->io_ctx;
 
     // reset flags
-    conn->poll_flags = 0;
+    io_ctx->poll_flags = 0;
 
     struct timeval tv;
     tv.tv_sec = 0;
@@ -164,13 +164,13 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
     }
 
     if(FD_ISSET(io_ctx->fd, &writeset))
-        conn->poll_flags |=  POLL_FLAG_SEND;
+        io_ctx->poll_flags |=  POLL_FLAG_SEND;
 
     if(FD_ISSET(io_ctx->fd, &readset))
-        conn->poll_flags |=  POLL_FLAG_RECV;
+        io_ctx->poll_flags |=  POLL_FLAG_RECV;
 
     if(FD_ISSET(io_ctx->fd, &errset))
-        conn->poll_flags |=  POLL_FLAG_ERR;
+        io_ctx->poll_flags |=  POLL_FLAG_ERR;
 
     return ASIO_OK;
 }
@@ -187,7 +187,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
     /* send */
 
     size_t bytes_unsent = buf_data_unread(io_ctx->send_buf);
-    if((conn->poll_flags & POLL_FLAG_SEND) && bytes_unsent > 0)
+    if((io_ctx->poll_flags & POLL_FLAG_SEND) && bytes_unsent > 0)
     {
         int bytes_sent = send(io_ctx->fd, io_ctx->send_buf->read_pos, bytes_unsent, 0);
         if (bytes_sent <= 0) {
@@ -196,7 +196,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                conn->user_flags |= TASK_FLAG_TERMINATE;
+                conn->task_flags |= TASK_FLAG_TERMINATE;
                 return ASIO_ERR;
             }
         } else
@@ -214,7 +214,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
         free_cap = buf_free_capacity(io_ctx->recv_buf);
     }
 
-    if((conn->poll_flags & POLL_FLAG_RECV) && free_cap > 0)
+    if((io_ctx->poll_flags & POLL_FLAG_RECV) && free_cap > 0)
     {
         int bytes_recv = recv(io_ctx->fd, io_ctx->recv_buf->write_pos, free_cap, 0);
 
@@ -226,7 +226,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                conn->user_flags |= TASK_FLAG_TERMINATE;
+                conn->task_flags |= TASK_FLAG_TERMINATE;
                 return ASIO_ERR;
             }
         } else
@@ -237,11 +237,11 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
 
     /* error */
 
-    if(conn->poll_flags & POLL_FLAG_ERR)
+    if(io_ctx->poll_flags & POLL_FLAG_ERR)
     {
         // TODO
         ESP_LOGE(TAG, "POLL_FLAG_ERR set");
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 

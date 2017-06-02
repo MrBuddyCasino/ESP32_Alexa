@@ -82,7 +82,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
     if(nparsed < 0)
     {
         ESP_LOGE(TAG, "http_parser_execute() error: %d", nparsed);
-        conn->user_flags |= TASK_FLAG_TERMINATE;
+        conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 
