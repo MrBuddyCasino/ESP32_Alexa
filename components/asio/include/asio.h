@@ -16,14 +16,14 @@ enum poll_flags
   , POLL_FLAG_ERR   = 1 << 2
 };
 
-enum conn_flags {
-    CONN_FLAG_NONE  = 1 << 0
-  , CONN_FLAG_CLOSE = 1 << 1
+enum task_flags {
+    TASK_FLAG_NONE  = 1 << 0
+  , TASK_FLAG_TERMINATE = 1 << 1
 };
 
 
 typedef enum {
-    ASIO_OK = 0, ASIO_ERR = -1, ASIO_CLOSE_CONNECTION = -2
+    ASIO_OK = 0, ASIO_ERR = -1
 } asio_result_t;
 
 
@@ -35,11 +35,11 @@ typedef enum
 
 typedef enum
 {
-    ASIO_CONN_NEW = 1,
-    ASIO_CONN_CONNECTING,
-    ASIO_CONN_CONNECTED,
-    ASIO_CONN_CLOSING,
-    ASIO_CONN_CLOSED
+    ASIO_TASK_NEW = 1,
+    ASIO_TASK_STARTING,
+    ASIO_TASK_RUNNING,
+    ASIO_TASK_STOPPING,
+    ASIO_TASK_STOPPED
 } asio_conn_state_t;
 
 
@@ -58,18 +58,17 @@ struct asio_connection_t
 {
     asio_registry_t *registry;
     url_t *url;
-    int fd;
-    asio_transport_t transport;
     asio_conn_state_t state;
     asio_event_handler_t evt_handler;
-    void *proto_ctx;
-    asio_event_handler_t proto_handler;
     void *user_data;
     int user_flags;
     int poll_flags;
-    asio_poll_t poll_handler;
+
     asio_event_handler_t io_handler;
     void *io_ctx;
+
+    void *proto_ctx;
+    asio_event_handler_t proto_handler;
 
     time_t last_modified;
 

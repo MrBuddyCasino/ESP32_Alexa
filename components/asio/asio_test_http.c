@@ -29,9 +29,9 @@ int cb_on_message_complete(http_parser* parser)
     asio_connection_t *conn = parser->data;
     if(http_should_keep_alive(parser)) {
         ESP_LOGE(TAG, "http_should_keep_alive");
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
     } else {
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
         ESP_LOGE(TAG, "! http_should_keep_alive");
     }
 

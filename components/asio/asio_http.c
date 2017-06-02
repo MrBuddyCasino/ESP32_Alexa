@@ -19,6 +19,7 @@
 
 #include "asio.h"
 #include "asio_socket.h"
+#include "asio_secure_socket.h"
 #include "asio_http.h"
 
 #define TAG "asio_http"
@@ -81,7 +82,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
     if(nparsed < 0)
     {
         ESP_LOGE(TAG, "http_parser_execute() error: %d", nparsed);
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
 
@@ -116,11 +117,11 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
 asio_result_t asio_proto_handler_http(asio_connection_t *conn)
 {
     switch (conn->state) {
-        case ASIO_CONN_NEW:
+        case ASIO_TASK_NEW:
             http_status = HTTP_IDLE;
             break;
 
-        case ASIO_CONN_CLOSING:
+        case ASIO_TASK_STOPPING:
             asio_http_handle_close(conn);
             break;
 

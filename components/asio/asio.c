@@ -104,13 +104,13 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
         conn->evt_handler(conn);
     }
 
-    if(conn->user_flags & CONN_FLAG_CLOSE) {
-        conn->state = ASIO_CONN_CLOSING;
+    if(conn->user_flags & TASK_FLAG_TERMINATE) {
+        conn->state = ASIO_TASK_STOPPING;
         conn->user_flags = 0;
     }
 
     // connection was closing last round, now its time to say goodbye
-    if(conn->state == ASIO_CONN_CLOSING) {
+    if(conn->state == ASIO_TASK_STOPPING) {
 
         conn->io_handler(conn);
 
@@ -122,11 +122,11 @@ static void asio_registry_poll_connection(asio_registry_t *registry, asio_connec
             conn->evt_handler(conn);
         }
 
-        conn->state = ASIO_CONN_CLOSED;
+        conn->state = ASIO_TASK_STOPPED;
     }
 
     // all handlers have been notified thats its game over, remove
-    if(conn->state == ASIO_CONN_CLOSED) {
+    if(conn->state == ASIO_TASK_STOPPED) {
         asio_registry_remove_connection(conn);
     }
 

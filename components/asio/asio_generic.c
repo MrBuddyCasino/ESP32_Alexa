@@ -39,14 +39,14 @@ asio_result_t asio_generic_handler(asio_connection_t *conn)
 
     switch(conn->state)
     {
-        case ASIO_CONN_CONNECTED:
-            if (ctx->callback(conn, ctx->cb_arg, conn->user_data) == ASIO_CLOSE_CONNECTION) {
-                conn->state = ASIO_CONN_CLOSING;
+        case ASIO_TASK_RUNNING:
+            if (ctx->callback(conn, ctx->cb_arg, conn->user_data) != ASIO_OK) {
+                conn->user_flags |= TASK_FLAG_TERMINATE;
             }
             break;
 
-        case ASIO_CONN_CLOSING:
-        case ASIO_CONN_CLOSED:
+        case ASIO_TASK_STOPPING:
+        case ASIO_TASK_STOPPED:
             asio_generic_destroy(conn);
             break;
 
@@ -68,7 +68,7 @@ asio_connection_t *asio_new_generic_task(asio_registry_t *registry, asio_generic
 
     conn->registry = registry;
     conn->io_handler = asio_generic_handler;
-    conn->state = ASIO_CONN_CONNECTED;
+    conn->state = ASIO_TASK_RUNNING;
     conn->user_data = user_data;
 
     asio_generic_ctx_t *generic_ctx = calloc(1, sizeof(asio_generic_ctx_t));

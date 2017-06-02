@@ -511,9 +511,10 @@ asio_result_t on_auth_token_valid_cb(asio_connection_t *conn, void *arg, void *u
     EventGroupHandle_t event_group = arg;
     alexa_session_t *alexa_session = user_data;
 
+    /* when we've got a valid auth token: open downchannel and terminate task */
     if(xEventGroupGetBits(event_group) & AUTH_TOKEN_VALID_BIT) {
         open_downchannel(alexa_session);
-        return ASIO_CLOSE_CONNECTION;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
     }
 
     return ASIO_OK;
@@ -524,9 +525,10 @@ asio_result_t on_downchan_connected_cb(asio_connection_t *conn, void *arg, void 
     EventGroupHandle_t event_group = arg;
     alexa_session_t *alexa_session = user_data;
 
+    /* when the connection is established, synchronize state and terminate task */
     if(xEventGroupGetBits(event_group) & DOWNCHAN_CONNECTED_BIT) {
         event_send_state(alexa_session);
-        return ASIO_CLOSE_CONNECTION;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
     }
 
     return ASIO_OK;

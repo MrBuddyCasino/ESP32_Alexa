@@ -48,8 +48,10 @@
 #include "common_buffer.h"
 #include "brssl.h"
 #include "url_parser.h"
+
 #include "asio.h"
 #include "asio_socket.h"
+#include "asio_secure_socket.h"
 
 #define TAG "asio_handler_ssl"
 #define SOCKET           int
@@ -586,6 +588,7 @@ free_alpn(void *alpn)
 
 typedef struct {
     asio_event_handler_t delegate_io_handler;
+    asio_socket_context_t *delegate_io_ctx;
     int hsdetails;
     int verbose;
     int trace;
@@ -605,15 +608,16 @@ typedef struct {
     br_x509_minimal_context *xc;
     x509_noanchor_context *xwc;
     br_hash_class *dnhash;
-} ssl_proto_ctx_t;
+} ssl_ctx_t;
 
 
 asio_result_t asio_ssl_connect(asio_connection_t *conn)
 {
-    ssl_proto_ctx_t *proto_ctx = conn->io_ctx;
+    ssl_ctx_t *proto_ctx = conn->io_ctx;
 
     if(proto_ctx->delegate_io_handler(conn) != ASIO_OK) {
-        return ASIO_CLOSE_CONNECTION;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
+        return ASIO_ERR;
     }
 
     unsigned vmin, vmax;
@@ -862,7 +866,7 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
 asio_result_t asio_ssl_close(asio_connection_t *conn)
 {
     ESP_LOGI(TAG, "asio_ssl_handle_close");
-    ssl_proto_ctx_t *io_ctx = conn->io_ctx;
+    ssl_ctx_t *io_ctx = conn->io_ctx;
 
     xfree(io_ctx->cc);
     xfree(io_ctx->suites);
@@ -872,8 +876,8 @@ asio_result_t asio_ssl_close(asio_connection_t *conn)
     free_certificates(io_ctx->chain, io_ctx->chain_len);
     free_private_key(io_ctx->sk);
     xfree(io_ctx->iobuf);
-    if (conn->fd != INVALID_SOCKET) {
-        close(conn->fd);
+    if (io_ctx->delegate_io_ctx->fd != INVALID_SOCKET) {
+        close(io_ctx->delegate_io_ctx->fd);
     }
     xfree(io_ctx->zc);
     xfree(io_ctx->xc);
@@ -889,19 +893,19 @@ asio_result_t asio_ssl_close(asio_connection_t *conn)
 
 
 /* see brssl.h */
-int asio_ssl_run_engine(asio_connection_t *conn)
+asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
 {
-    ssl_proto_ctx_t *io_ctx = conn->io_ctx;
+    ssl_ctx_t *io_ctx = conn->io_ctx;
     br_ssl_engine_context *cc = &io_ctx->cc->eng;
 
     int verbose = io_ctx->verbose;
     int trace = io_ctx->trace;
 
     /* poll socket */
-    if(conn->poll_handler(conn) == ASIO_ERR) {
+    if(asio_socket_poll(conn) != ASIO_OK) {
         ESP_LOGE(TAG, "poll failed");
-        conn->user_flags |= CONN_FLAG_CLOSE;
-        return 0;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
+        return ASIO_ERR;
     }
 
     /*
@@ -917,8 +921,8 @@ int asio_ssl_run_engine(asio_connection_t *conn)
     st = br_ssl_engine_current_state(cc);
     if (st == BR_SSL_CLOSED) {
         handle_closed(verbose, cc);
-        conn->user_flags |= CONN_FLAG_CLOSE;
-        return ASIO_CLOSE_CONNECTION;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
+        return ASIO_ERR;
     }
 
     /*
@@ -988,7 +992,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
         int wlen;
 
         buf = br_ssl_engine_sendrec_buf(cc, &len);
-        wlen = send(conn->fd, buf, len, 0);
+        wlen = send(io_ctx->delegate_io_ctx->fd, buf, len, 0);
         if(trace) {
             ESP_LOGI(TAG, "wrote %d bytes to socket", wlen);
         }
@@ -1001,8 +1005,8 @@ int asio_ssl_run_engine(asio_connection_t *conn)
             if (verbose) {
                 fprintf(stderr, "socket closed...\n");
             }
-            conn->user_flags |= CONN_FLAG_CLOSE;
-            return ASIO_CLOSE_CONNECTION;
+            conn->user_flags |= TASK_FLAG_TERMINATE;
+            return ASIO_ERR;
         }
         if (trace) {
             dump_blob("Outgoing bytes", buf, wlen);
@@ -1017,7 +1021,7 @@ int asio_ssl_run_engine(asio_connection_t *conn)
         int rlen;
 
         buf = br_ssl_engine_recvrec_buf(cc, &len);
-        rlen = recv(conn->fd, buf, len, 0);
+        rlen = recv(io_ctx->delegate_io_ctx->fd, buf, len, 0);
         if(trace) {
             ESP_LOGI(TAG, "read %d bytes from socket", rlen);
         }
@@ -1032,8 +1036,8 @@ int asio_ssl_run_engine(asio_connection_t *conn)
                 fprintf(stderr, "socket closed...\n");
             }
 
-            conn->user_flags |= CONN_FLAG_CLOSE;
-            return ASIO_CLOSE_CONNECTION;
+            conn->user_flags |= TASK_FLAG_TERMINATE;
+            return ASIO_ERR;
         }
         if (trace) {
             dump_blob("Incoming bytes", buf, rlen);
@@ -1072,15 +1076,15 @@ asio_result_t asio_io_handler_ssl(asio_connection_t *conn)
 {
     switch(conn->state)
     {
-        case ASIO_CONN_NEW:
+        case ASIO_TASK_NEW:
             return asio_ssl_connect(conn);
             break;
 
-        case ASIO_CONN_CONNECTED:
+        case ASIO_TASK_RUNNING:
             return asio_ssl_run_engine(conn);
             break;
 
-        case ASIO_CONN_CLOSING:
+        case ASIO_TASK_STOPPING:
             return asio_ssl_close(conn);
             break;
 
@@ -1097,7 +1101,7 @@ asio_connection_t *asio_new_ssl_connection(asio_registry_t *registry, asio_trans
 
     asio_connection_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
 
-    ssl_proto_ctx_t *io_ctx = calloc(1, sizeof(ssl_proto_ctx_t));
+    ssl_ctx_t *io_ctx = calloc(1, sizeof(ssl_ctx_t));
     conn->io_ctx = io_ctx;
 
     // chain io handler

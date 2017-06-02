@@ -102,16 +102,16 @@ asio_result_t *asio_gpio_event(asio_connection_t *conn)
 {
     switch(conn->state)
     {
-        case ASIO_CONN_NEW:
+        case ASIO_TASK_NEW:
             asio_gpio_init(conn);
-            conn->state = ASIO_CONN_CONNECTED;
+            conn->state = ASIO_TASK_RUNNING;
             break;
 
-        case ASIO_CONN_CONNECTED:
+        case ASIO_TASK_RUNNING:
             asio_gpio_run(conn);
             break;
 
-        case ASIO_CONN_CLOSING:
+        case ASIO_TASK_STOPPING:
             asio_gpio_destroy(conn);
             break;
 
@@ -133,7 +133,7 @@ asio_connection_t *asio_new_gpio_task(asio_registry_t *registry, gpio_num_t gpio
 
     conn->registry = registry;
     conn->io_handler = asio_gpio_event;
-    conn->state = ASIO_CONN_NEW;
+    conn->state = ASIO_TASK_NEW;
     conn->user_data = user_data;
 
     asio_gpio_context_t *gpio_ctx = calloc(1, sizeof(asio_gpio_context_t));

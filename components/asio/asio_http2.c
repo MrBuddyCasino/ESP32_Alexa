@@ -20,6 +20,7 @@
 
 #include "asio.h"
 #include "asio_socket.h"
+#include "asio_secure_socket.h"
 #include "include/asio_http.h"
 
 #define TAG "asio_http2"
@@ -43,7 +44,7 @@ int asio_http2_on_stream_close(nghttp2_session *session, int32_t stream_id,
 
         // set flag
         asio_connection_t *conn = session_data->conn;
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
     }
 
     return 0;
@@ -71,7 +72,7 @@ static size_t asio_app_recv_cb(asio_connection_t *conn, unsigned char* buf, size
 
     // close connection?
     if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
         ESP_LOGE(TAG, "closing stream");
     }
 
@@ -118,7 +119,7 @@ static size_t asio_app_send_cb(asio_connection_t *conn, unsigned char* buf, size
 
     // close connection?
     if(!nghttp2_session_want_write(h2) && !nghttp2_session_want_read(h2)) {
-        conn->user_flags |= CONN_FLAG_CLOSE;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
         ESP_LOGE(TAG, "closing stream");
     }
 
@@ -130,7 +131,7 @@ asio_result_t asio_io_handler_http2(asio_connection_t *conn)
     http2_session_data_t *http2_session = conn->proto_ctx;
 
     switch (conn->state) {
-        case ASIO_CONN_CLOSING:
+        case ASIO_TASK_STOPPING:
             free_http2_session_data(http2_session, 0);
             break;
 

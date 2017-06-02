@@ -25,15 +25,11 @@
 #include "url_parser.h"
 #include "common_buffer.h"
 #include "asio.h"
+#include "asio_socket.h"
 
 #define TAG "asio_handler_socket"
 #define SOCKET             int
 #define INVALID_SOCKET     (-1)
-
-typedef struct {
-    buffer_t *recv_buf;
-    buffer_t *send_buf;
-} asio_socket_context_t;
 
 
 int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
@@ -131,6 +127,8 @@ int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
 
 asio_result_t asio_socket_poll(asio_connection_t *conn)
 {
+    asio_socket_context_t *io_ctx = conn->io_ctx;
+
     // reset flags
     conn->poll_flags = 0;
 
@@ -146,11 +144,11 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
     FD_ZERO(&writeset);
     FD_ZERO(&errset);
 
-    FD_SET(conn->fd, &readset);
-    FD_SET(conn->fd, &writeset);
-    FD_SET(conn->fd, &errset);
+    FD_SET(io_ctx->fd, &readset);
+    FD_SET(io_ctx->fd, &writeset);
+    FD_SET(io_ctx->fd, &errset);
 
-    int n = select(conn->fd + 1, &readset, &writeset, &errset, &tv);
+    int n = select(io_ctx->fd + 1, &readset, &writeset, &errset, &tv);
 
     if (n < 0) {
         if (errno == EINTR) {
@@ -165,13 +163,13 @@ asio_result_t asio_socket_poll(asio_connection_t *conn)
         return ASIO_OK;
     }
 
-    if(FD_ISSET(conn->fd, &writeset))
+    if(FD_ISSET(io_ctx->fd, &writeset))
         conn->poll_flags |=  POLL_FLAG_SEND;
 
-    if(FD_ISSET(conn->fd, &readset))
+    if(FD_ISSET(io_ctx->fd, &readset))
         conn->poll_flags |=  POLL_FLAG_RECV;
 
-    if(FD_ISSET(conn->fd, &errset))
+    if(FD_ISSET(io_ctx->fd, &errset))
         conn->poll_flags |=  POLL_FLAG_ERR;
 
     return ASIO_OK;
@@ -191,14 +189,15 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
     size_t bytes_unsent = buf_data_unread(io_ctx->send_buf);
     if((conn->poll_flags & POLL_FLAG_SEND) && bytes_unsent > 0)
     {
-        int bytes_sent = send(conn->fd, io_ctx->send_buf->read_pos, bytes_unsent, 0);
+        int bytes_sent = send(io_ctx->fd, io_ctx->send_buf->read_pos, bytes_unsent, 0);
         if (bytes_sent <= 0) {
             if (errno == EINTR || errno == EWOULDBLOCK) {
                 // OK
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                return ASIO_CLOSE_CONNECTION;
+                conn->user_flags |= TASK_FLAG_TERMINATE;
+                return ASIO_ERR;
             }
         } else
         {
@@ -217,7 +216,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
 
     if((conn->poll_flags & POLL_FLAG_RECV) && free_cap > 0)
     {
-        int bytes_recv = recv(conn->fd, io_ctx->recv_buf->write_pos, free_cap, 0);
+        int bytes_recv = recv(io_ctx->fd, io_ctx->recv_buf->write_pos, free_cap, 0);
 
         if (bytes_recv <= 0)
         {
@@ -227,7 +226,8 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
             } else
             {
                 ESP_LOGE(TAG, "socket closed");
-                return ASIO_CLOSE_CONNECTION;
+                conn->user_flags |= TASK_FLAG_TERMINATE;
+                return ASIO_ERR;
             }
         } else
         {
@@ -241,7 +241,8 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
     {
         // TODO
         ESP_LOGE(TAG, "POLL_FLAG_ERR set");
-        return ASIO_CLOSE_CONNECTION;
+        conn->user_flags |= TASK_FLAG_TERMINATE;
+        return ASIO_ERR;
     }
 
     return ASIO_OK;
@@ -251,7 +252,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
 void asio_socket_free(asio_connection_t *conn)
 {
     asio_socket_context_t *io_ctx = conn->io_ctx;
-    close(conn->fd);
+    close(io_ctx->fd);
     buf_destroy(io_ctx->recv_buf);
     buf_destroy(io_ctx->send_buf);
 }
@@ -259,24 +260,25 @@ void asio_socket_free(asio_connection_t *conn)
 
 asio_result_t asio_socket_event(asio_connection_t *conn)
 {
+    asio_socket_context_t *io_ctx = conn->io_ctx;
     switch(conn->state)
     {
-        case ASIO_CONN_NEW:
+        case ASIO_TASK_NEW:
             ;
             int fd = asio_socket_connect(conn->url->host, conn->url->port, true);
             if(fd < 0) {
-                conn->state = ASIO_CONN_CLOSING;
+                conn->state = ASIO_TASK_STOPPING;
                 return ASIO_ERR;
             }
-            conn->fd = fd;
-            conn->state = ASIO_CONN_CONNECTED;
+            io_ctx->fd = fd;
+            conn->state = ASIO_TASK_RUNNING;
             break;
 
-        case ASIO_CONN_CONNECTED:
+        case ASIO_TASK_RUNNING:
             return asio_socket_rw(conn);
             break;
 
-        case ASIO_CONN_CLOSING:
+        case ASIO_TASK_STOPPING:
             asio_socket_free(conn);
             break;
 
@@ -303,6 +305,7 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
 
     asio_socket_context_t *io_ctx = calloc(1, sizeof(asio_socket_context_t));
     conn->io_ctx = io_ctx;
+    io_ctx->fd = -1;
     /* ssl has its own buffers */
     if(transport_proto != ASIO_TCP_SSL) {
         conn->io_ctx = buf_create(1024);
@@ -311,11 +314,8 @@ asio_connection_t *asio_new_socket_connection(asio_registry_t *registry, asio_tr
 
     conn->url = url;
     conn->user_data = user_data;
-    conn->transport = transport_proto;
-    conn->fd = -1;
     conn->io_handler = asio_socket_event;
-    conn->state = ASIO_CONN_NEW;
-    conn->poll_handler = asio_socket_poll;
+    conn->state = ASIO_TASK_NEW;
 
     if(asio_registry_add_connection(registry, conn) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
