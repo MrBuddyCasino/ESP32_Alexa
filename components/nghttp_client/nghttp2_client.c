@@ -77,7 +77,7 @@ typedef time_t mbedtls_time_t;
 #include "http_parser.h"
 #include "url_parser.h"
 
-#include "nghttp2_client.h"
+#include "../nghttp_client/include/nghttp2_client.h"
 
 #define ARRLEN(x) (sizeof(x) / sizeof(x[0]))
 
