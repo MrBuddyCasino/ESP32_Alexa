@@ -613,12 +613,16 @@ typedef struct {
 
 asio_result_t asio_ssl_connect(asio_connection_t *conn)
 {
-    ssl_ctx_t *proto_ctx = conn->io_ctx;
+    ssl_ctx_t *io_ctx = conn->io_ctx;
 
-    if(proto_ctx->delegate_io_handler(conn) != ASIO_OK) {
+    // stupid hack: swap temporarily
+    conn->io_ctx = io_ctx->delegate_io_ctx;
+    if(io_ctx->delegate_io_handler(conn) != ASIO_OK) {
+        conn->io_ctx = io_ctx;
         conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
     }
+    conn->io_ctx = io_ctx;
 
     unsigned vmin, vmax;
     unsigned hfuns;
@@ -638,12 +642,12 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
     fallback = 0;
     flags = 0;
 
-    if (proto_ctx->chain == NULL && proto_ctx->sk != NULL) {
+    if (io_ctx->chain == NULL && io_ctx->sk != NULL) {
         fprintf(stderr, "ERROR: private key specified, but"
             " no certificate chain\n");
         return ASIO_ERR;
     }
-    if (proto_ctx->chain != NULL && proto_ctx->sk == NULL) {
+    if (io_ctx->chain != NULL && io_ctx->sk == NULL) {
         fprintf(stderr, "ERROR: certificate chain specified, but"
             " no private key\n");
         return ASIO_ERR;
@@ -661,23 +665,23 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
         return ASIO_ERR;
     }
 
-    if (proto_ctx->suites == NULL) {
-        proto_ctx->num_suites = 0;
+    if (io_ctx->suites == NULL) {
+        io_ctx->num_suites = 0;
 
         for (u = 0; cipher_suites[u].name; u ++) {
             if ((cipher_suites[u].req & REQ_TLS12) == 0
                 || vmax >= BR_TLS12)
             {
-                proto_ctx->num_suites++;
+                io_ctx->num_suites++;
             }
         }
-        proto_ctx->suites = xmalloc(proto_ctx->num_suites * sizeof *(proto_ctx->suites));
-        proto_ctx->num_suites = 0;
+        io_ctx->suites = xmalloc(io_ctx->num_suites * sizeof *(io_ctx->suites));
+        io_ctx->num_suites = 0;
         for (u = 0; cipher_suites[u].name; u ++) {
             if ((cipher_suites[u].req & REQ_TLS12) == 0
                 || vmax >= BR_TLS12)
             {
-                proto_ctx->suites[proto_ctx->num_suites ++] = cipher_suites[u];
+                io_ctx->suites[io_ctx->num_suites ++] = cipher_suites[u];
             }
         }
     }
@@ -685,20 +689,20 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
         hfuns = (unsigned)-1;
     }
     if (iobuf_len == 0) {
-        if (proto_ctx->bidi) {
+        if (io_ctx->bidi) {
             iobuf_len = BR_SSL_BUFSIZE_BIDI;
         } else {
             iobuf_len = BR_SSL_BUFSIZE_MONO;
         }
     }
-    proto_ctx->iobuf = xmalloc(iobuf_len);
+    io_ctx->iobuf = xmalloc(iobuf_len);
 
     /*
      * Compute implementation requirements and inject implementations.
      */
-    proto_ctx->suite_ids = xmalloc((proto_ctx->num_suites + 1) * sizeof *(proto_ctx->suite_ids));
-    br_ssl_client_zero(proto_ctx->cc);
-    br_ssl_engine_set_versions(&proto_ctx->cc->eng, vmin, vmax);
+    io_ctx->suite_ids = xmalloc((io_ctx->num_suites + 1) * sizeof *(io_ctx->suite_ids));
+    br_ssl_client_zero(io_ctx->cc);
+    br_ssl_engine_set_versions(&io_ctx->cc->eng, vmin, vmax);
     for (u = 0; hash_functions[u].name; u ++) {
         const br_hash_class *hc;
         int id;
@@ -706,15 +710,15 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
         hc = hash_functions[u].hclass;
         id = (hc->desc >> BR_HASHDESC_ID_OFF) & BR_HASHDESC_ID_MASK;
         if ((hfuns & ((unsigned)1 << id)) != 0) {
-            proto_ctx->dnhash = hc;
+            io_ctx->dnhash = hc;
         }
     }
-    if (proto_ctx->dnhash == NULL) {
+    if (io_ctx->dnhash == NULL) {
         fprintf(stderr, "ERROR: no supported hash function\n");
         return ASIO_ERR;
     }
-    br_x509_minimal_init(proto_ctx->xc, proto_ctx->dnhash,
-        &VEC_ELT(*(proto_ctx->anchors), 0), VEC_LEN(*(proto_ctx->anchors)));
+    br_x509_minimal_init(io_ctx->xc, io_ctx->dnhash,
+        &VEC_ELT(*(io_ctx->anchors), 0), VEC_LEN(*(io_ctx->anchors)));
     if (vmin <= BR_TLS11) {
         if (!(hfuns & (1 << br_md5_ID))) {
             fprintf(stderr, "ERROR: TLS 1.0 and 1.1 need MD5\n");
@@ -725,66 +729,66 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
             return ASIO_ERR;
         }
     }
-    for (u = 0; u < proto_ctx->num_suites; u ++) {
+    for (u = 0; u < io_ctx->num_suites; u ++) {
         unsigned req;
 
-        req = proto_ctx->suites[u].req;
-        proto_ctx->suite_ids[u] = proto_ctx->suites[u].suite;
+        req = io_ctx->suites[u].req;
+        io_ctx->suite_ids[u] = io_ctx->suites[u].suite;
         if ((req & REQ_TLS12) != 0 && vmax < BR_TLS12) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires TLS 1.2\n",
-                proto_ctx->suites[u].name);
+                io_ctx->suites[u].name);
             return ASIO_ERR;
         }
         if ((req & REQ_SHA1) != 0 && !(hfuns & (1 << br_sha1_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-1\n",
-                proto_ctx->suites[u].name);
+                io_ctx->suites[u].name);
             return ASIO_ERR;
         }
         if ((req & REQ_SHA256) != 0 && !(hfuns & (1 << br_sha256_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-256\n",
-                proto_ctx->suites[u].name);
+                io_ctx->suites[u].name);
             return ASIO_ERR;
         }
         if ((req & REQ_SHA384) != 0 && !(hfuns & (1 << br_sha384_ID))) {
             fprintf(stderr,
                 "ERROR: cipher suite %s requires SHA-384\n",
-                proto_ctx->suites[u].name);
+                io_ctx->suites[u].name);
             return ASIO_ERR;
         }
         /* TODO: algorithm implementation selection */
         if ((req & REQ_AESCBC) != 0) {
-            br_ssl_engine_set_default_aes_cbc(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_aes_cbc(&io_ctx->cc->eng);
         }
         if ((req & REQ_AESGCM) != 0) {
-            br_ssl_engine_set_default_aes_gcm(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_aes_gcm(&io_ctx->cc->eng);
         }
         if ((req & REQ_CHAPOL) != 0) {
-            br_ssl_engine_set_default_chapol(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_chapol(&io_ctx->cc->eng);
         }
         if ((req & REQ_3DESCBC) != 0) {
-            br_ssl_engine_set_default_des_cbc(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_des_cbc(&io_ctx->cc->eng);
         }
         if ((req & REQ_RSAKEYX) != 0) {
-            br_ssl_client_set_default_rsapub(proto_ctx->cc);
+            br_ssl_client_set_default_rsapub(io_ctx->cc);
         }
         if ((req & REQ_ECDHE_RSA) != 0) {
-            br_ssl_engine_set_default_ec(&proto_ctx->cc->eng);
-            br_ssl_engine_set_default_rsavrfy(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_ec(&io_ctx->cc->eng);
+            br_ssl_engine_set_default_rsavrfy(&io_ctx->cc->eng);
         }
         if ((req & REQ_ECDHE_ECDSA) != 0) {
-            br_ssl_engine_set_default_ecdsa(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_ecdsa(&io_ctx->cc->eng);
         }
         if ((req & REQ_ECDH) != 0) {
-            br_ssl_engine_set_default_ec(&proto_ctx->cc->eng);
+            br_ssl_engine_set_default_ec(&io_ctx->cc->eng);
         }
     }
     if (fallback) {
-        proto_ctx->suite_ids[proto_ctx->num_suites ++] = 0x5600;
+        io_ctx->suite_ids[io_ctx->num_suites ++] = 0x5600;
     }
-    br_ssl_engine_set_suites(&proto_ctx->cc->eng, proto_ctx->suite_ids, proto_ctx->num_suites);
+    br_ssl_engine_set_suites(&io_ctx->cc->eng, io_ctx->suite_ids, io_ctx->num_suites);
 
     for (u = 0; hash_functions[u].name; u ++) {
         const br_hash_class *hc;
@@ -793,25 +797,25 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
         hc = hash_functions[u].hclass;
         id = (hc->desc >> BR_HASHDESC_ID_OFF) & BR_HASHDESC_ID_MASK;
         if ((hfuns & ((unsigned)1 << id)) != 0) {
-            br_ssl_engine_set_hash(&proto_ctx->cc->eng, id, hc);
-            br_x509_minimal_set_hash(proto_ctx->xc, id, hc);
+            br_ssl_engine_set_hash(&io_ctx->cc->eng, id, hc);
+            br_x509_minimal_set_hash(io_ctx->xc, id, hc);
         }
     }
     if (vmin <= BR_TLS11) {
-        br_ssl_engine_set_prf10(&proto_ctx->cc->eng, &br_tls10_prf);
+        br_ssl_engine_set_prf10(&io_ctx->cc->eng, &br_tls10_prf);
     }
     if (vmax >= BR_TLS12) {
         if ((hfuns & ((unsigned)1 << br_sha256_ID)) != 0) {
-            br_ssl_engine_set_prf_sha256(&proto_ctx->cc->eng,
+            br_ssl_engine_set_prf_sha256(&io_ctx->cc->eng,
                 &br_tls12_sha256_prf);
         }
         if ((hfuns & ((unsigned)1 << br_sha384_ID)) != 0) {
-            br_ssl_engine_set_prf_sha384(&proto_ctx->cc->eng,
+            br_ssl_engine_set_prf_sha384(&io_ctx->cc->eng,
                 &br_tls12_sha384_prf);
         }
     }
-    br_x509_minimal_set_rsa(proto_ctx->xc, br_rsa_pkcs1_vrfy_get_default());
-    br_x509_minimal_set_ecdsa(proto_ctx->xc,
+    br_x509_minimal_set_rsa(io_ctx->xc, br_rsa_pkcs1_vrfy_get_default());
+    br_x509_minimal_set_ecdsa(io_ctx->xc,
         br_ec_get_default(), br_ecdsa_vrfy_asn1_get_default());
 
     /*
@@ -819,46 +823,46 @@ asio_result_t asio_ssl_connect(asio_connection_t *conn)
      * will always fail. In that situation, we use our custom wrapper
      * that tolerates unknown anchors.
      */
-    if (VEC_LEN(*(proto_ctx->anchors)) == 0) {
-        if (proto_ctx->verbose) {
+    if (VEC_LEN(*(io_ctx->anchors)) == 0) {
+        if (io_ctx->verbose) {
             fprintf(stderr,
                 "WARNING: no configured trust anchor\n");
         }
-        x509_noanchor_init(proto_ctx->xwc, &proto_ctx->xc->vtable);
-        br_ssl_engine_set_x509(&proto_ctx->cc->eng, &proto_ctx->xwc->vtable);
+        x509_noanchor_init(io_ctx->xwc, &io_ctx->xc->vtable);
+        br_ssl_engine_set_x509(&io_ctx->cc->eng, &io_ctx->xwc->vtable);
     } else {
-        br_ssl_engine_set_x509(&proto_ctx->cc->eng, &proto_ctx->xc->vtable);
+        br_ssl_engine_set_x509(&io_ctx->cc->eng, &io_ctx->xc->vtable);
     }
 
     if (minhello_len != (size_t)-1) {
-        br_ssl_client_set_min_clienthello_len(proto_ctx->cc, minhello_len);
+        br_ssl_client_set_min_clienthello_len(io_ctx->cc, minhello_len);
     }
-    br_ssl_engine_set_all_flags(&proto_ctx->cc->eng, flags);
-    if (VEC_LEN(proto_ctx->alpn_names) != 0) {
-        br_ssl_engine_set_protocol_names(&proto_ctx->cc->eng,
-            (const char **)&VEC_ELT(proto_ctx->alpn_names, 0),
-            VEC_LEN(proto_ctx->alpn_names));
+    br_ssl_engine_set_all_flags(&io_ctx->cc->eng, flags);
+    if (VEC_LEN(io_ctx->alpn_names) != 0) {
+        br_ssl_engine_set_protocol_names(&io_ctx->cc->eng,
+            (const char **)&VEC_ELT(io_ctx->alpn_names, 0),
+            VEC_LEN(io_ctx->alpn_names));
     }
 
-    if (proto_ctx->chain != NULL) {
-        proto_ctx->zc->vtable = &ccert_vtable;
-        proto_ctx->zc->verbose = proto_ctx->verbose;
-        proto_ctx->zc->chain = proto_ctx->chain;
-        proto_ctx->zc->chain_len = proto_ctx->chain_len;
-        proto_ctx->zc->sk = proto_ctx->sk;
-        if (nostaticecdh || proto_ctx->sk->key_type != BR_KEYTYPE_EC) {
-            proto_ctx->zc->issuer_key_type = 0;
+    if (io_ctx->chain != NULL) {
+        io_ctx->zc->vtable = &ccert_vtable;
+        io_ctx->zc->verbose = io_ctx->verbose;
+        io_ctx->zc->chain = io_ctx->chain;
+        io_ctx->zc->chain_len = io_ctx->chain_len;
+        io_ctx->zc->sk = io_ctx->sk;
+        if (nostaticecdh || io_ctx->sk->key_type != BR_KEYTYPE_EC) {
+            io_ctx->zc->issuer_key_type = 0;
         } else {
-            proto_ctx->zc->issuer_key_type = get_cert_signer_algo(&proto_ctx->chain[0]);
-            if (proto_ctx->zc->issuer_key_type == 0) {
+            io_ctx->zc->issuer_key_type = get_cert_signer_algo(&io_ctx->chain[0]);
+            if (io_ctx->zc->issuer_key_type == 0) {
                 return ASIO_ERR;
             }
         }
-        br_ssl_client_set_client_certificate(proto_ctx->cc, &proto_ctx->zc->vtable);
+        br_ssl_client_set_client_certificate(io_ctx->cc, &io_ctx->zc->vtable);
     }
 
-    br_ssl_engine_set_buffer(&proto_ctx->cc->eng, proto_ctx->iobuf, iobuf_len, proto_ctx->bidi);
-    br_ssl_client_reset(proto_ctx->cc, conn->url->host, 0);
+    br_ssl_engine_set_buffer(&io_ctx->cc->eng, io_ctx->iobuf, iobuf_len, io_ctx->bidi);
+    br_ssl_client_reset(io_ctx->cc, conn->url->host, 0);
 
     return ASIO_OK;
 }
@@ -885,8 +889,9 @@ asio_result_t asio_ssl_close(asio_connection_t *conn)
     xfree(io_ctx->dnhash);
     xfree(io_ctx->anchors);
 
-    /* free delegate resources */
-    // io_ctx->delegate_io_handler(conn);
+    /* free socket resources */
+    asio_socket_free(io_ctx->delegate_io_ctx);
+    free(io_ctx->delegate_io_ctx);
 
     return ASIO_OK;
 }
@@ -902,7 +907,7 @@ asio_result_t asio_ssl_run_engine(asio_connection_t *conn)
     int trace = io_ctx->trace;
 
     /* poll socket */
-    if(asio_socket_poll(conn) != ASIO_OK) {
+    if(asio_socket_poll(io_ctx->delegate_io_ctx) != ASIO_OK) {
         ESP_LOGE(TAG, "poll failed");
         conn->task_flags |= TASK_FLAG_TERMINATE;
         return ASIO_ERR;
@@ -1102,6 +1107,9 @@ asio_connection_t *asio_new_ssl_connection(asio_registry_t *registry, asio_trans
     asio_connection_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
 
     ssl_ctx_t *io_ctx = calloc(1, sizeof(ssl_ctx_t));
+
+    // chain io ctx
+    io_ctx->delegate_io_ctx = conn->io_ctx;
     conn->io_ctx = io_ctx;
 
     // chain io handler

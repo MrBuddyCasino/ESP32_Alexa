@@ -125,9 +125,8 @@ int asio_socket_connect(const char *host, uint16_t n_port, bool verbose)
 }
 
 
-asio_result_t asio_socket_poll(asio_connection_t *conn)
+asio_result_t asio_socket_poll(asio_socket_context_t *io_ctx)
 {
-    asio_socket_context_t *io_ctx = conn->io_ctx;
 
     // reset flags
     io_ctx->poll_flags = 0;
@@ -182,7 +181,7 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
     asio_socket_context_t *io_ctx = conn->io_ctx;
 
     /* poll */
-    asio_socket_poll(conn);
+    asio_socket_poll(io_ctx);
 
     /* send */
 
@@ -249,9 +248,8 @@ asio_result_t asio_socket_rw(asio_connection_t *conn)
 }
 
 
-void asio_socket_free(asio_connection_t *conn)
+void asio_socket_free(asio_socket_context_t *io_ctx)
 {
-    asio_socket_context_t *io_ctx = conn->io_ctx;
     close(io_ctx->fd);
     buf_destroy(io_ctx->recv_buf);
     buf_destroy(io_ctx->send_buf);
@@ -279,7 +277,7 @@ asio_result_t asio_socket_event(asio_connection_t *conn)
             break;
 
         case ASIO_TASK_STOPPING:
-            asio_socket_free(conn);
+            asio_socket_free(conn->io_ctx);
             break;
 
         default:
