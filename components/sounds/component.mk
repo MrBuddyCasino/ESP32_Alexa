@@ -1,2 +1,2 @@
 
-COMPONENT_EMBED_FILES := coin.mp3
+COMPONENT_EMBED_FILES := laugh.mp3

@@ -99,8 +99,8 @@ void render_samples(char *buf, uint32_t buf_len, pcm_format_t *buf_desc)
     if(renderer_instance->sample_rate != buf_desc->sample_rate)
     {
         ESP_LOGI(TAG, "changing sample rate from %d to %d", renderer_instance->sample_rate, buf_desc->sample_rate);
-        //uint32_t rate = buf_desc->sample_rate * renderer_instance->sample_rate_modifier;
-        uint32_t rate = buf_desc->sample_rate;
+        uint32_t rate = buf_desc->sample_rate * renderer_instance->sample_rate_modifier;
+        // uint32_t rate = buf_desc->sample_rate;
         i2s_set_sample_rates(renderer_instance->i2s_num, rate);
         renderer_instance->sample_rate = buf_desc->sample_rate;
     }

@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <stddef.h>
 #include <string.h>
+#include <stdbool.h>
 
 #include "freertos/freertos.h"
 #include "esp_system.h"
@@ -15,7 +16,7 @@
 
 #include "nghttp2/nghttp2.h"
 
-#include "../nghttp_client/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 #include "multipart_parser.h"
 #include "audio_player.h"
 #include "alexa.h"
@@ -23,13 +24,11 @@
 #include "common_buffer.h"
 #include "alexa_events.h"
 #include "multipart_producer.h"
+#include "ui.h"
+#include "alexa_speech_recognizer.h"
 
 #define TAG "event_send_speech"
 
-
-typedef enum {
-    SPEECH_IDLE = 0, SPEECH_RECOGNIZING, SPEECH_BUSY, SPEECH_EXPECTING
-} speech_recognizer_state_t;
 
 static speech_recognizer_state_t state;
 
@@ -48,12 +47,7 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
         uint8_t *buf, size_t buf_length, uint32_t *data_flags,
         nghttp2_data_source *data_source, void *user_data)
 {
-
-    // http2_session_data_t *session_data = user_data;
-    // alexa_session_t *alexa_session = session_data->user_data;
-
     alexa_stream_t *alexa_stream = data_source->ptr;
-
     ssize_t bytes_written = 0;
 
     if(yield) {
@@ -70,18 +64,12 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             ; // fix C grammar oddity
 
             // write multipart headers
-            //buf_write(buffer, JSON_PART_PREFIX, sizeof(JSON_PART_PREFIX) - 1);
-            //size_t prefix_len = strlen(JSON_PART_PREFIX);
-            //memcpy(buf, JSON_PART_PREFIX, prefix_len);
             begin_part_meta_data(buffer);
 
             // write json
             char *json = create_evt_recognize(alexa_stream->msg_id++, alexa_stream->dialog_req_id++);
-            //size_t json_len = strlen(json);
             buf_write(buffer, json, strlen(json));
-            //memcpy(buf + prefix_len, json, json_len);
             free(json);
-            // bytes_written = prefix_len + json_len;
             bytes_written = buf_data_total(buffer);
 
             alexa_stream->next_action = AUDIO_HEADERS;
@@ -89,39 +77,13 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
 
         case AUDIO_HEADERS:
             bytes_written = begin_part_audio_data(buffer);
-            //bytes_written = strlen(AUDIO_PART_PREFIX);
-            //memcpy(buf, AUDIO_PART_PREFIX, bytes_written);
             alexa_stream->next_action = AUDIO_DATA;
             // else won't print
             printf("%.*s\n", bytes_written, buf);
-            // i2s_start(I2S_NUM_1);
             break;
 
         case AUDIO_DATA:
-            ; // C grammar workaround
-
-            /*
-            // read audio from a file
-            if(alexa_stream->file_pos == 0)
-                alexa_stream->file_pos = file_start;
-
-            uint8_t *pos = alexa_stream->file_pos;
-            // size_t file_size = file_end - file_start;
-            size_t remaining = file_end - pos;
-            bytes_written = buf_length < remaining ? buf_length : remaining;
-            memcpy(buf, pos, bytes_written);
-
-            // ESP_LOGE(TAG, "AUDIO_DATA    buf_length: %d, remaining: %d", buf_length, remaining);
-            if(buf_length > remaining) {
-                alexa_stream->next_action = DONE;
-            }
-
-            yield = true;
-            alexa_stream->file_pos += bytes_written;
-            */
-
-
-
+            ;
             /* Alexa wants:
              * 16bit Linear PCM
              * 16kHz sample rate
@@ -161,7 +123,6 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             }
 
             bytes_out_total += bytes_written;
-            //printf("bytes_out_total: %d\n", bytes_out_total);
             printf("bytes_out: %d\n", bytes_written);
 
             break;
@@ -170,8 +131,6 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             audio_recorder_stop();
             renderer_stop();
             ESP_LOGE(TAG, "DONE");
-            //bytes_written = strlen(BOUNDARY_EOF);
-            //memcpy(buf, BOUNDARY_EOF, bytes_written);
             multipart_end(buffer);
             *data_flags |= NGHTTP2_DATA_FLAG_EOF;
             bytes_out_total = 0;
@@ -180,9 +139,6 @@ ssize_t send_speech_read_callback(nghttp2_session *session, int32_t stream_id,
             alexa_stream->next_action = META_HEADERS;
             break;
     }
-
-    // null-terminate the buffer
-    // buf[bytes_written] = 0;
 
     // printf("writing %d bytes to stream_id: %d, buf length: %d\n", bytes_written, stream_id, buf_length);
 
@@ -208,13 +164,24 @@ void speech_recognizer_start_capture(alexa_session_t *alexa_session)
     stream_events->file_pos = 0;
     stream_events->current_part = META_HEADERS;
 
-    net_send_event(alexa_session, send_speech_read_callback);
+    alexa_send_event(alexa_session, send_speech_read_callback);
 }
 
 void speech_recognizer_stop_capture(alexa_session_t *alexa_session)
 {
-    state = SPEECH_BUSY;
+    //state = SPEECH_BUSY;
+    state = SPEECH_IDLE;
     alexa_stream_t *stream_events = get_stream_events(alexa_session);
     stream_events->next_action = DONE;
+    ui_queue_event(UI_NONE);
 }
 
+bool speech_recognizer_is_ready()
+{
+    return state == SPEECH_IDLE;
+}
+
+void speech_recognizer_set_state(speech_recognizer_state_t new_state)
+{
+    state = new_state;
+}

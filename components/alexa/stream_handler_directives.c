@@ -15,12 +15,12 @@
 #include "cJSON.h"
 #include "nghttp2/nghttp2.h"
 
-#include "../nghttp_client/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 #include "audio_player.h"
 #include "alexa.h"
 #include "alexa_directive_handler.h"
+#include "alexa_speech_recognizer.h"
 #include "web_radio.h"
-#include "event_send_speech.h"
 
 #define TAG "handler_directives"
 

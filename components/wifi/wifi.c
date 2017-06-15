@@ -17,7 +17,7 @@
 
 #define TAG "wifi"
 
-const int CONNECTED_BIT = 0x00000001;
+const int CONNECTED_BIT = BIT(1);
 
 /* event handler for pre-defined wifi events */
 static esp_err_t event_handler(void *ctx, system_event_t *event)

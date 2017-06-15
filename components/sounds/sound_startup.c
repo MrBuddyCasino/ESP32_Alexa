@@ -10,8 +10,11 @@
 #include "audio_player.h"
 
 /* embedded file */
-extern uint8_t file_start[] asm("_binary_coin_mp3_start");
-extern uint8_t file_end[] asm("_binary_coin_mp3_end");
+//extern uint8_t file_start[] asm("_binary_coin_mp3_start");
+//extern uint8_t file_end[] asm("_binary_coin_mp3_end");
+
+extern uint8_t file_start[] asm("_binary_laugh_mp3_start");
+extern uint8_t file_end[] asm("_binary_laugh_mp3_end");
 
 void play_sound(player_t *player_config)
 {

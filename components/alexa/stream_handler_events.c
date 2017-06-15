@@ -15,12 +15,13 @@
 #include "cJSON.h"
 #include "nghttp2/nghttp2.h"
 
-#include "../nghttp_client/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 #include "multipart_parser.h"
 #include "common_buffer.h"
 #include "audio_player.h"
 #include "web_radio.h"
 #include "alexa.h"
+#include "alexa_speech_recognizer.h"
 
 #define TAG "handler_events"
 
@@ -74,6 +75,9 @@ void handle_directive(alexa_session_t *alexa_session, const char *at, size_t len
 {
     printf("handle_directive:\n%.*s\n", length, at);
 
+    // reset speech recognizer to idle
+    speech_recognizer_set_state(SPEECH_IDLE);
+
     cJSON *root = cJSON_Parse(at);
 
     cJSON *directive = cJSON_GetObjectItem(root, "directive");
@@ -82,10 +86,10 @@ void handle_directive(alexa_session_t *alexa_session, const char *at, size_t len
 
     if(strstr(name->valuestring, "Speak"))
     {
+
         handle_speak_directive(alexa_session, directive);
     }
-
-    if(strstr(name->valuestring, "Play"))
+    else if(strstr(name->valuestring, "Play"))
     {
         handle_play_directive(alexa_session, directive);
     }

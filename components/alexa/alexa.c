@@ -20,11 +20,13 @@
 #include "freertos/event_groups.h"
 
 #include "multipart_parser.h"
+#include "nghttp2_client.h"
+#include "sntp.h"
 
+#include "ui.h"
 #include "audio_player.h"
 #include "alexa.h"
 
-#include "../nghttp_client/include/nghttp2_client.h"
 #include "audio_recorder.h"
 #include "controls.h"
 #include "common_buffer.h"
@@ -32,17 +34,21 @@
 #include "alexa_directive_handler.h"
 #include "alexa_events.h"
 #include "multipart_producer.h"
-#include "event_send_speech.h"
 #include "event_send_state.h"
 #include "stream_handler_directives.h"
 #include "stream_handler_events.h"
 #include "sound_startup.h"
 #include "url_parser.h"
 
+#include "wifi.h"
+
+
 #include "asio.h"
 #include "asio_http2.h"
 #include "asio_gpio.h"
 #include "asio_generic.h"
+#include "asio_led_ui.h"
+#include "include/alexa_speech_recognizer.h"
 
 /**
  * Hide struct members from the public
@@ -59,9 +65,9 @@ struct alexa_session_struct_t
 
 static alexa_session_t *alexa_session;
 
-const int AUTH_TOKEN_VALID_BIT = BIT(1);
-const int DOWNCHAN_CONNECTED_BIT = BIT(2);
-const int INITIAL_STATE_SENT_BIT = BIT(3);
+const int AUTH_TOKEN_VALID_BIT = BIT(2);
+const int DOWNCHAN_CONNECTED_BIT = BIT(3);
+const int INITIAL_STATE_SENT_BIT = BIT(4);
 
 /* Europe: alexa-eu / America: alexa-na */
 static char *uri_directives =
@@ -448,7 +454,7 @@ int open_downchannel(alexa_session_t *alexa_session)
     return ret;
 }
 
-int net_send_event(alexa_session_t *alexa_session,
+int alexa_send_event(alexa_session_t *alexa_session,
         nghttp2_data_source_read_callback read_callback)
 {
 
@@ -503,7 +509,11 @@ void alexa_gpio_handler(gpio_num_t io_num, void *user_data)
     printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
 
     alexa_session_t *alexa_session = user_data;
-    speech_recognizer_start_capture(alexa_session);
+
+    if(speech_recognizer_is_ready()) {
+        ui_queue_event(UI_RECOGNIZING_SPEECH);
+        speech_recognizer_start_capture(alexa_session);
+    }
 }
 
 
@@ -521,7 +531,7 @@ asio_result_t on_auth_token_valid_cb(asio_task_t *conn, void *arg, void *user_da
     return ASIO_OK;
 }
 
-asio_result_t on_downchan_connected_cb(asio_task_t *conn, void *arg, void *user_data)
+asio_result_t on_downchan_connected_cb(asio_task_t *task, void *arg, void *user_data)
 {
     EventGroupHandle_t event_group = arg;
     alexa_session_t *alexa_session = user_data;
@@ -529,7 +539,28 @@ asio_result_t on_downchan_connected_cb(asio_task_t *conn, void *arg, void *user_
     /* when the connection is established, synchronize state and terminate task */
     if(xEventGroupGetBits(event_group) & DOWNCHAN_CONNECTED_BIT) {
         event_send_state(alexa_session);
-        conn->task_flags |= TASK_FLAG_TERMINATE;
+        // TODO
+        play_sound(alexa_session->player_config);
+        task->task_flags |= TASK_FLAG_TERMINATE;
+    }
+
+    return ASIO_OK;
+}
+
+/* start auth token refresh */
+asio_result_t on_wifi_connected_cb(asio_task_t *task, void *arg, void *user_data)
+{
+    EventGroupHandle_t event_group = arg;
+    alexa_session_t *alexa_session = user_data;
+
+    if(xEventGroupGetBits(event_group) & CONNECTED_BIT) {
+        ui_queue_event(UI_CONNECTED);
+
+        // TODO
+        obtain_time();
+
+        auth_token_refresh(alexa_session);
+        task->task_flags |= TASK_FLAG_TERMINATE;
     }
 
     return ASIO_OK;
@@ -542,27 +573,22 @@ int alexa_init()
     //alexa_session_t *alexa_session;
     create_alexa_session(&alexa_session);
 
+    /* init led ui */
+    asio_new_generic_task(alexa_session->registry, on_led_ui_cb, GPIO_NUM_23, NULL);
+
+
+    /* init wifi */
+    ui_queue_event(UI_CONNECTING);
+    initialise_wifi(alexa_session->event_group);
+
     // create I2S config
     // configure_audio_hw(alexa_session->player_config);
 
-    //controls_init(alexa_gpio_handler_task, 4096, alexa_session);
-    asio_new_gpio_task(alexa_session->registry, GPIO_NUM_0, alexa_gpio_handler, alexa_session);
+    asio_new_gpio_task(alexa_session->registry, GPIO_NUM_2, alexa_gpio_handler, alexa_session);
 
-    // assume expired token
-    // ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    auth_token_refresh(alexa_session);
-    ESP_LOGI(TAG, "auth_token_refresh finished");
+    /* refresh auth token when wifi is connected */
+    asio_new_generic_task(alexa_session->registry, on_wifi_connected_cb, alexa_session->event_group, alexa_session);
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-
-    //xEventGroupWaitBits(alexa_session->event_group, AUTH_TOKEN_VALID_BIT,
-    //                            false, true, portMAX_DELAY);
-    // vTaskDelay( 10 / portTICK_PERIOD_MS );
-    // conn should remain open
-    /*
-    open_downchannel(alexa_session);
-    ESP_LOGI(TAG, "open_downchannel finished");
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    */
 
     /* open downchannel when authentication token has been acquired */
     asio_new_generic_task(alexa_session->registry, on_auth_token_valid_cb, alexa_session->event_group, alexa_session);
@@ -570,28 +596,10 @@ int alexa_init()
     /* send initial state when downchannel is connected */
     asio_new_generic_task(alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
 
-    // wait until downchannel is connected
-    /*
-    xEventGroupWaitBits(alexa_session->event_group, DOWNCHAN_CONNECTED_BIT,
-    false, true, portMAX_DELAY);
-
-    // vTaskDelay( 10 / portTICK_PERIOD_MS );
-
-    // send initial state
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    event_send_state(alexa_session);
-    ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
-    */
-
-    // send voice
-    // send_speech(alexa_session);
-    play_sound(alexa_session->player_config);
-
     // run event loop
     while(1) {
         asio_registry_poll(alexa_session->registry);
     }
-
 
     //ESP_LOGI(TAG, "alexa_init stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
 

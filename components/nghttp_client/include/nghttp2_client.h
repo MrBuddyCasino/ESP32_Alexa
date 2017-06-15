@@ -79,7 +79,7 @@ int nghttp_new_session(http2_session_data_t **http2_session_ptr,
 /**
  * @brief create a new stream for an existing session
  */
-int nghttp_new_stream(http2_session_data_t *http2_session,
+int32_t nghttp_new_stream(http2_session_data_t *http2_session,
         int32_t *stream_id,
         void *stream_user_data,
         char *uri, char *method,

@@ -54,5 +54,5 @@ ssize_t send_state_read_callback(nghttp2_session *session, int32_t stream_id,
 
 int event_send_state(alexa_session_t *alexa_session)
 {
-    return net_send_event(alexa_session, send_state_read_callback);
+    return alexa_send_event(alexa_session, send_state_read_callback);
 }
