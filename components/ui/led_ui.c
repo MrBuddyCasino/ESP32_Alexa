@@ -76,17 +76,24 @@ static animation_t ANIM_NONE = {
         .frames = {
                 { .color = {.r=0, .g=0, .b=0}, .duration_ms = 0, .pattern = PATTERN_SOLID }
         },
-        .num_frames = 1
+        .num_frames = 2
 };
 
 static animation_t ANIM_BLINK_RED = {
         .frames = {
-                { .color = {.r=128, .g=0, .b=0}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE },
-                { .color = {.r=128, .g=0, .b=0}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE }
+                { .color = {.r=255, .g=0, .b=0}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE },
+                { .color = {.r=255, .g=0, .b=0}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE }
         },
         .num_frames = 2
 };
 
+static animation_t ANIM_BLINK_BLUE = {
+        .frames = {
+                { .color = {.r=0, .g=0, .b=255}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE },
+                { .color = {.r=0, .g=0, .b=255}, .duration_ms = 250, .pattern = PATTERN_ALTERNATE }
+        },
+        .num_frames = 2
+};
 
 typedef struct {
     gpio_num_t pin;
@@ -191,6 +198,10 @@ void led_ui_run()
 
             case UI_RECOGNIZING_SPEECH:
                 led_ui_obj->curr_anim = &ANIM_BLINK_RED;
+            break;
+
+            case UI_SYNTHESIZING_SPEECH:
+                led_ui_obj->curr_anim = &ANIM_BLINK_BLUE;
             break;
         }
 

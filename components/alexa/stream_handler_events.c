@@ -11,6 +11,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "driver/gpio.h"
 #include "esp_log.h"
 #include "cJSON.h"
 #include "nghttp2/nghttp2.h"
@@ -20,6 +21,7 @@
 #include "common_buffer.h"
 #include "audio_player.h"
 #include "web_radio.h"
+#include "ui.h"
 #include "alexa.h"
 #include "alexa_speech_recognizer.h"
 
@@ -86,7 +88,7 @@ void handle_directive(alexa_session_t *alexa_session, const char *at, size_t len
 
     if(strstr(name->valuestring, "Speak"))
     {
-
+        ui_queue_event(UI_SYNTHESIZING_SPEECH);
         handle_speak_directive(alexa_session, directive);
     }
     else if(strstr(name->valuestring, "Play"))

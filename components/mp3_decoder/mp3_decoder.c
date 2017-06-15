@@ -24,6 +24,8 @@
 #include "spiram_fifo.h"
 #include "mp3_decoder.h"
 #include "common_buffer.h"
+#include "driver/gpio.h"
+#include "ui.h"
 
 #define TAG "mad_decoder"
 
@@ -177,6 +179,8 @@ void mp3_decoder_task(void *pvParameters)
     player->decoder_status = STOPPED;
     player->decoder_command = CMD_NONE;
     ESP_LOGI(TAG, "decoder stopped");
+
+    ui_queue_event(UI_NONE);
 
     ESP_LOGI(TAG, "MAD decoder stack: %d\n", uxTaskGetStackHighWaterMark(NULL));
     vTaskDelete(NULL);
