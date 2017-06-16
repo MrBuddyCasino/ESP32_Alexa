@@ -32,9 +32,7 @@
 #include "common_buffer.h"
 #include "byteswap.h"
 #include "alexa_directive_handler.h"
-#include "alexa_events.h"
 #include "multipart_producer.h"
-#include "event_send_state.h"
 #include "stream_handler_directives.h"
 #include "stream_handler_events.h"
 #include "sound_startup.h"
@@ -48,7 +46,9 @@
 #include "asio_gpio.h"
 #include "asio_generic.h"
 #include "asio_led_ui.h"
-#include "include/alexa_speech_recognizer.h"
+#include "alexa_events_js.h"
+#include "alexa_speech_recognizer.h"
+#include "alexa_events_send.h"
 
 /**
  * Hide struct members from the public
@@ -539,6 +539,7 @@ asio_result_t on_downchan_connected_cb(asio_task_t *task, void *arg, void *user_
     /* when the connection is established, synchronize state and terminate task */
     if(xEventGroupGetBits(event_group) & DOWNCHAN_CONNECTED_BIT) {
         event_send_state(alexa_session);
+        event_send_settings_updated(alexa_session);
         // TODO
         play_sound(alexa_session->player_config);
         task->task_flags |= TASK_FLAG_TERMINATE;

@@ -11,7 +11,13 @@
 /* System.SynchronizeState */
 char *create_evt_sync_state(uint16_t msg_id);
 
+
 /* SpeechRecognizer.Recognize */
 char *create_evt_recognize(uint16_t msg_id, uint16_t dialog_req_id);
+
+
+/* Settings.SettingsUpdated */
+char *create_evt_updt_settings(uint16_t msg_id, char *locale);
+
 
 #endif /* _INCLUDE_ALEXA_MESSAGES_H_ */

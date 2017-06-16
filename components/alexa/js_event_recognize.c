@@ -14,8 +14,8 @@
 
 #include "cJSON.h"
 
-#include "alexa_events.h"
-#include "include/alexa_events_context.h"
+#include "alexa_events_context.h"
+#include "alexa_events_js.h"
 
 /*
 {

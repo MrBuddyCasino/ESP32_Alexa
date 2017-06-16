@@ -1,7 +1,7 @@
 /*
- * event_send_speech.c
+ * event_settings_updated.c
  *
- *  Created on: 19.05.2017
+ *  Created on: 16.06.2017
  *      Author: michaelboeckling
  */
 
@@ -23,10 +23,10 @@
 #include "include/alexa_events_js.h"
 #include "multipart_producer.h"
 
-#define TAG "event_send_speech"
+#define TAG "event_settings"
 
 
-ssize_t send_state_read_cb(nghttp2_session *session, int32_t stream_id,
+ssize_t settings_updated_read_cb(nghttp2_session *session, int32_t stream_id,
         uint8_t *buf, size_t buf_length, uint32_t *data_flags,
         nghttp2_data_source *data_source, void *user_data)
 {
@@ -36,7 +36,8 @@ ssize_t send_state_read_cb(nghttp2_session *session, int32_t stream_id,
 
     begin_part_meta_data(buffer);
 
-    char *json = create_evt_sync_state(alexa_stream->msg_id++);
+
+    char *json = create_evt_updt_settings(alexa_stream->msg_id++, "en-GB");
     buf_write(buffer, json, strlen(json));
     free(json);
 
@@ -51,7 +52,7 @@ ssize_t send_state_read_cb(nghttp2_session *session, int32_t stream_id,
 }
 
 
-int event_send_state(alexa_session_t *alexa_session)
+int event_send_settings_updated(alexa_session_t *alexa_session)
 {
-    return alexa_send_event(alexa_session, send_state_read_cb);
+    return alexa_send_event(alexa_session, settings_updated_read_cb);
 }

@@ -22,10 +22,11 @@
 #include "alexa.h"
 #include "audio_recorder.h"
 #include "common_buffer.h"
-#include "alexa_events.h"
 #include "multipart_producer.h"
 #include "ui.h"
 #include "alexa_speech_recognizer.h"
+
+#include "include/alexa_events_js.h"
 
 #define TAG "event_send_speech"
 
