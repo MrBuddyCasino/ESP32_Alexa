@@ -8,6 +8,9 @@
 #ifndef _INCLUDE_ALEXA_H_
 #define _INCLUDE_ALEXA_H_
 
+#define ALEXA_ENDPOINT CONFIG_ALEXA_ENDPOINT
+#define ALEXA_LOCALE CONFIG_ALEXA_LOCALE
+
 /**
  * @struct
  *

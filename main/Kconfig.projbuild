@@ -1,4 +1,4 @@
-menu "Web Radio / Bluetooth Speaker"
+menu "Alexa config"
 
 menu "Wifi Configuration"
 
@@ -15,13 +15,11 @@ config WIFI_PASSWORD
 		WiFi password (WPA or WPA2) to use.
 
 		Can be left blank if the network has no security set.
-
 endmenu
 
-menu "Audio Output"
 
 choice
-    prompt "Select Audio Output Mode"
+    prompt "Audio Output"
     default I2S
     help
         This option selects the audio output.
@@ -43,13 +41,47 @@ config AUDIO_OUTPUT_MODE
     default 2 if AUDIO_OUTPUT_MODE_DAC_BUILT_IN
     default 3 if AUDIO_OUTPUT_MODE_PDM
 
-endmenu
-
-menuconfig BT_SPEAKER_MODE
-    bool "Bluetooth Speaker Mode"
+choice
+    prompt "API Endpoint"
+    default EU
     help
-       Select this option to turn on bluetooth speaker mode.
-       Web radio streaming will be unavailable.
-   depends on CLASSIC_BT_ENABLED
+        Select API endpoint URL.
+
+    config ALEXA_ENDPOINT_EU
+        bool "EU"
+    config ALEXA_ENDPOINT_US
+        bool "US"
+endchoice
+
+config ALEXA_ENDPOINT
+    string
+    default "https://avs-alexa-na.amazon.com" if ALEXA_ENDPOINT_US
+    default "https://avs-alexa-eu.amazon.com" if ALEXA_ENDPOINT_EU
+
+
+choice
+    prompt "Language"
+    default ALEXA_LOCALE_EN_GB
+    help
+        Select locale.
+
+    config ALEXA_LOCALE_EN_US
+        bool "en-US"
+    config ALEXA_LOCALE_EN_GB
+        bool "en-GB"
+    config ALEXA_LOCALE_DE_DE
+        bool "de-DE"
+endchoice
+
+config ALEXA_LOCALE
+    string
+    default "en-US" if ALEXA_LOCALE_EN_US
+    default "en-GB" if ALEXA_LOCALE_EN_GB
+    default "de-DE" if ALEXA_LOCALE_DE_DE
+
+config ALEXA_AUTH_REFRESH_TOKEN
+	string "Authentication Token"
+	help
+		Generate a token at https://alexa.boeckling.net/ and paste it here.
 
 endmenu

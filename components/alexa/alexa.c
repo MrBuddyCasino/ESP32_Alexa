@@ -69,10 +69,10 @@ const int AUTH_TOKEN_VALID_BIT = BIT(2);
 const int DOWNCHAN_CONNECTED_BIT = BIT(3);
 const int INITIAL_STATE_SENT_BIT = BIT(4);
 
+
 /* Europe: alexa-eu / America: alexa-na */
-static char *uri_directives =
-        "https://avs-alexa-eu.amazon.com/v20160207/directives";
-static char *uri_events = "https://avs-alexa-eu.amazon.com/v20160207/events";
+static char *uri_directives = ALEXA_ENDPOINT "/v20160207/directives";
+static char *uri_events = ALEXA_ENDPOINT "/v20160207/events";
 
 #define TAG "alexa"
 
@@ -600,6 +600,7 @@ int alexa_init()
     // run event loop
     while(1) {
         asio_registry_poll(alexa_session->registry);
+        vTaskDelay(1);
     }
 
     //ESP_LOGI(TAG, "alexa_init stack: %d\n", uxTaskGetStackHighWaterMark(NULL));

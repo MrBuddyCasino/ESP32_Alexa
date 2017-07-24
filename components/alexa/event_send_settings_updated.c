@@ -37,7 +37,7 @@ ssize_t settings_updated_read_cb(nghttp2_session *session, int32_t stream_id,
     begin_part_meta_data(buffer);
 
 
-    char *json = create_evt_updt_settings(alexa_stream->msg_id++, "en-GB");
+    char *json = create_evt_updt_settings(alexa_stream->msg_id++, ALEXA_LOCALE);
     buf_write(buffer, json, strlen(json));
     free(json);
 

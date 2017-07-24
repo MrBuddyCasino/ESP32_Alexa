@@ -141,7 +141,7 @@ static void start_web_radio()
 #include "common_buffer.h"
 #include "url_parser.h"
 #include "nghttp2/nghttp2.h"
-#include "../components/nghttp_client/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 #include "asio.h"
 #include "asio_http.h"
 #include "asio_http2.h"
@@ -153,6 +153,11 @@ void app_main()
 {
     ESP_LOGI(TAG, "starting app_main()");
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+
+    /* print MAC */
+    uint8_t sta_mac[6];
+    esp_efuse_mac_get_default(sta_mac);
+    ESP_LOGE(TAG, "MAC address: " MACSTR, MAC2STR(sta_mac));
 
     init_hardware();
 

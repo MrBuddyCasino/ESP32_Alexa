@@ -5,11 +5,9 @@ This is a work in progress version of an Alexa client.
 ## Status
 
 <ul>
-    <li>mbedTLS done</li>
-    <li>nghttp2 done</li>
-    <li>Alexa API in progress</li>
-    <li>mic I2S input TODO</li>
-    <li>response I2S output TODO</li>
+    <li>Voice Recognition: done</li>
+    <li>Audio Player: TODO</li>
+    <li>Alerts: TODO</li>
 </ul>
 
 ## Configuration
