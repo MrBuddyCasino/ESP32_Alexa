@@ -12,17 +12,16 @@ This is a work in progress version of an Alexa client.
 
 ## Configuration
 
-Configuration options are kept in /main/include/playerconfig.h.
+Configure the project via menuconfig, there is an "Alexa config" menu.
 
 
 ## Alexa Authentication
 
-You need to have an authentication token, which currently lives in TOKEN defined in components/alexa/alexa.c.
+You need to have an authentication token.
 
-For now you need to create your own token, see here on how to do that:
-
-https://developer.amazon.com/public/solutions/alexa/alexa-voice-service/docs/authorizing-your-alexa-enabled-product-from-a-website
-
+1. write down your ESP32's MAC address
+2. got to https://alexa.boeckling.net/ and create a new authentication token
+3. enter that token into the configuration option via menuconfig
 
 ## Downloading Required Software
 
@@ -75,11 +74,25 @@ The functionality is activated by uncommenting "#define USE_DAC" in playerconfig
 
 ## Connecting the I2S microphone
 
-TODO
+Connect the I2S microphone like this:
+```
+ESP pin   - I2S signal
+----------------------
+GPIO18   - LRCK
+GPIO17   - BCLK
+GPIO05   - DATA
+```
 
-## Breadboard Example
+These are known to work:
+https://www.tindie.com/products/onehorse/ics43434-i2s-digital-microphone/
+https://www.adafruit.com/product/3421
 
-I used the Watterott ESP-WROOM-32-Breakout, which is pin-compatible to the Espressif Core Board (DevKitC).
-Please note that in this picture, the JTAG header is connected too, but you can safely ignore that.
+The ICS-43434 is higher quality than the SPH0645LM4H.
 
-<img src="doc/breadboard_wiring.jpg" width="50%" height="50%">
+## Connecting the Neopixels
+
+You need two Neopixels, simply chain them and connect data to GPIO_NUM_4.
+
+## Demo
+
+See this crappy video: https://www.youtube.com/watch?v=xRobZAVO_Io&feature=youtu.be
