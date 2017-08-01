@@ -59,29 +59,30 @@ asio_result_t asio_generic_handler(asio_task_t *conn)
 }
 
 
-asio_task_t *asio_new_generic_task(asio_registry_t *registry, asio_generic_callback_t callback, void *cb_arg, void *user_data)
+asio_task_t *asio_new_generic_task(char* name, asio_registry_t *registry, asio_generic_callback_t callback, void *cb_arg, void *user_data)
 {
-    asio_task_t *conn = calloc(1, sizeof(asio_task_t));
-    if(conn == NULL) {
+    asio_task_t *task = calloc(1, sizeof(asio_task_t));
+    if(task == NULL) {
         ESP_LOGE(TAG, "calloc() failed: asio_connection_t");
         return NULL;
     }
 
-    conn->registry = registry;
-    conn->io_handler = asio_generic_handler;
-    conn->state = ASIO_TASK_NEW;
-    conn->user_data = user_data;
+    task->name = name;
+    task->registry = registry;
+    task->io_handler = asio_generic_handler;
+    task->state = ASIO_TASK_NEW;
+    task->user_data = user_data;
 
     asio_generic_ctx_t *generic_ctx = calloc(1, sizeof(asio_generic_ctx_t));
-    conn->io_ctx = generic_ctx;
+    task->io_ctx = generic_ctx;
     generic_ctx->callback = callback;
     generic_ctx->cb_arg = cb_arg;
 
-    if(asio_registry_add_task(registry, conn) < 0) {
+    if(asio_registry_add_task(registry, task) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
-        asio_registry_remove_task(conn);
+        asio_registry_remove_task(task);
         return NULL;
     }
 
-    return conn;
+    return task;
 }

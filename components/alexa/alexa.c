@@ -575,7 +575,7 @@ int alexa_init()
     create_alexa_session(&alexa_session);
 
     /* init led ui */
-    asio_new_generic_task(alexa_session->registry, on_led_ui_cb, GPIO_NUM_23, NULL);
+    asio_new_generic_task("led_ui", alexa_session->registry, on_led_ui_cb, GPIO_NUM_4, NULL);
 
 
     /* init wifi */
@@ -588,14 +588,14 @@ int alexa_init()
     asio_new_gpio_task(alexa_session->registry, GPIO_NUM_2, alexa_gpio_handler, alexa_session);
 
     /* refresh auth token when wifi is connected */
-    asio_new_generic_task(alexa_session->registry, on_wifi_connected_cb, alexa_session->event_group, alexa_session);
+    asio_new_generic_task("refresh_auth_token", alexa_session->registry, on_wifi_connected_cb, alexa_session->event_group, alexa_session);
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
 
     /* open downchannel when authentication token has been acquired */
-    asio_new_generic_task(alexa_session->registry, on_auth_token_valid_cb, alexa_session->event_group, alexa_session);
+    asio_new_generic_task("downchannel", alexa_session->registry, on_auth_token_valid_cb, alexa_session->event_group, alexa_session);
 
     /* send initial state when downchannel is connected */
-    asio_new_generic_task(alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
+    asio_new_generic_task("send_initial_state", alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
 
     // run event loop
     while(1) {

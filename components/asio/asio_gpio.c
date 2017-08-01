@@ -73,46 +73,46 @@ void asio_gpio_init(asio_task_t *conn)
 }
 
 
-void asio_gpio_destroy(asio_task_t *conn)
+void asio_gpio_destroy(asio_task_t *task)
 {
-    asio_gpio_context_t *gpio_ctx = conn->io_ctx;
+    asio_gpio_context_t *gpio_ctx = task->io_ctx;
 
     // TODO: remove isr_service?
     gpio_isr_handler_remove(gpio_ctx->gpio_num);
     vQueueDelete(gpio_ctx->gpio_evt_queue);
-    free(conn->io_ctx);
+    free(task->io_ctx);
 }
 
 
-void asio_gpio_run(asio_task_t *conn)
+void asio_gpio_run(asio_task_t *task)
 {
-    asio_gpio_context_t *gpio_ctx = conn->io_ctx;
+    asio_gpio_context_t *gpio_ctx = task->io_ctx;
     uint32_t io_num;
 
     if (xQueueReceive(gpio_ctx->gpio_evt_queue, &io_num, (TickType_t) 0)) {
         // printf("GPIO[%d] intr, val: %d\n", io_num, gpio_get_level(io_num));
         //ESP_LOGI(TAG, "RAM left %d", esp_get_free_heap_size());
 
-        gpio_ctx->callback(io_num, conn->user_data);
+        gpio_ctx->callback(io_num, task->user_data);
     }
 }
 
 
-asio_result_t *asio_gpio_event(asio_task_t *conn)
+asio_result_t *asio_gpio_event(asio_task_t *task)
 {
-    switch(conn->state)
+    switch(task->state)
     {
         case ASIO_TASK_NEW:
-            asio_gpio_init(conn);
-            conn->state = ASIO_TASK_RUNNING;
+            asio_gpio_init(task);
+            task->state = ASIO_TASK_RUNNING;
             break;
 
         case ASIO_TASK_RUNNING:
-            asio_gpio_run(conn);
+            asio_gpio_run(task);
             break;
 
         case ASIO_TASK_STOPPING:
-            asio_gpio_destroy(conn);
+            asio_gpio_destroy(task);
             break;
 
         default:
@@ -125,28 +125,28 @@ asio_result_t *asio_gpio_event(asio_task_t *conn)
 
 asio_task_t *asio_new_gpio_task(asio_registry_t *registry, gpio_num_t gpio_num, asio_gpio_handler_t callback, void *user_data)
 {
-    asio_task_t *conn = calloc(1, sizeof(asio_task_t));
-    if(conn == NULL) {
+    asio_task_t *task = calloc(1, sizeof(asio_task_t));
+    if(task == NULL) {
         ESP_LOGE(TAG, "calloc() failed: asio_connection_t");
         return NULL;
     }
 
-    conn->registry = registry;
-    conn->io_handler = asio_gpio_event;
-    conn->state = ASIO_TASK_NEW;
-    conn->user_data = user_data;
+    task->registry = registry;
+    task->io_handler = asio_gpio_event;
+    task->state = ASIO_TASK_NEW;
+    task->user_data = user_data;
 
     asio_gpio_context_t *gpio_ctx = calloc(1, sizeof(asio_gpio_context_t));
-    conn->io_ctx = gpio_ctx;
+    task->io_ctx = gpio_ctx;
     gpio_ctx->callback = callback;
     gpio_ctx->gpio_num = gpio_num;
     gpio_ctx->gpio_evt_queue = xQueueCreate(1, sizeof(gpio_num_t));
 
-    if(asio_registry_add_task(registry, conn) < 0) {
+    if(asio_registry_add_task(registry, task) < 0) {
         ESP_LOGE(TAG, "failed to add connection");
-        asio_registry_remove_task(conn);
+        asio_registry_remove_task(task);
         return NULL;
     }
 
-    return conn;
+    return task;
 }

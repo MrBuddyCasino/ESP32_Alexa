@@ -18,6 +18,7 @@
 #include <nvs_flash.h>
 #include <driver/gpio.h>
 #include "ws2812.h"
+#include "neopixel.h"
 #include "ui.h"
 #include "url_parser.h"
 #include "asio.h"
@@ -39,6 +40,15 @@
         (res)->usec += 1000000; \
     } \
 } while (0)
+
+
+pixel_settings_t px = NEOPIXEL_INIT_CONFIG_DEFAULT();
+pixel_t pixel = {
+    .red = 0,
+    .green = 0,
+    .blue = 0,
+    .white = 3
+};
 
 
 static uint32_t get_timestamp()
@@ -153,12 +163,16 @@ static void render_frame()
         {
             if(((led_ui_obj->curr_frame + i) % 2 == 0) &&
                     (frame.pattern == PATTERN_ALTERNATE)) {
-                colors[i] = black;
+                //colors[i] = black;
+                np_set_pixel_color(&px, i, 0, 0, 0, 0);
             } else {
-                colors[i] = frame.color;
+                //colors[i] = frame.color;
+                np_set_pixel_color(&px, i, frame.color.r, frame.color.g, frame.color.b, 0);
             }
         }
-        ws2812_setColors(led_ui_obj->num_leds, colors);
+        ESP_LOGE(TAG, "setColors 0=%d, 1=%d", colors[0].num, colors[1].num);
+        //ws2812_setColors(led_ui_obj->num_leds, colors);
+        np_show(&px);
 
         calc_frame_switch_time();
 
@@ -236,13 +250,25 @@ asio_result_t led_ui_init(gpio_num_t gpio_pin, uint16_t num_leds)
     }
     led_ui_obj->ui_queue = q;
 
-    ws2812_init(gpio_pin, LED_WS2812);
+    /*
+    ws2812_init(gpio_pin, LED_WS2812B);
     //ws2812_setColors(2, &black);
     rgbVal colors[num_leds];
     memset(colors, 0, sizeof(rgbVal) * num_leds);
     ws2812_setColors(num_leds, colors);
+    */
+    px.pixel_count = num_leds;
+    px.items = malloc(sizeof(rmt_item32_t) * ((px.pixel_count * 32) + 1));
+    px.pixels = malloc(sizeof(pixel_t) * px.pixel_count);
 
-    ESP_LOGW(TAG, "UI initialized");
+    rmt_config_t rx = NEOPIXEL_RMT_INIT_CONFIG_DEFAULT(GPIO_NUM_4, 0);
+    ESP_ERROR_CHECK(rmt_config(&rx));
+    ESP_ERROR_CHECK(rmt_driver_install(RMT_CHANNEL_0, 0, 0));
+
+    np_clear(&px);
+    np_show(&px);
+
+    ESP_LOGW(TAG, "UI initialized on pin %d", gpio_pin);
 
     return ASIO_OK;
 }

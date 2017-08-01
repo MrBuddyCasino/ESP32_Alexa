@@ -886,7 +886,7 @@ asio_result_t asio_ssl_close(asio_task_t *conn)
     xfree(io_ctx->zc);
     xfree(io_ctx->xc);
     xfree(io_ctx->xwc);
-    xfree(io_ctx->dnhash);
+    //xfree(io_ctx->dnhash);
     xfree(io_ctx->anchors);
 
     /* free socket resources */
@@ -1104,7 +1104,7 @@ asio_result_t asio_io_handler_ssl(asio_task_t *conn)
 asio_task_t *asio_new_ssl_connection(asio_registry_t *registry, asio_transport_t transport_proto, char *uri, int bidi, char *alpn, cipher_suite *suites, size_t num_suites, void *user_data)
 {
 
-    asio_task_t *conn = asio_new_socket_connection(registry, ASIO_TCP, uri, user_data);
+    asio_task_t *conn = asio_new_socket_connection(registry, ASIO_TCP_SSL, uri, user_data);
 
     ssl_ctx_t *io_ctx = calloc(1, sizeof(ssl_ctx_t));
 

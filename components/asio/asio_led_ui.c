@@ -15,7 +15,6 @@
 asio_result_t on_led_ui_cb(asio_task_t *task, void *arg, void *user_data)
 {
     gpio_num_t gpio_pin = (gpio_num_t) arg;
-    gpio_pin = GPIO_NUM_21;
 
     switch(task->state)
     {

@@ -46,7 +46,8 @@ ssize_t settings_updated_read_cb(nghttp2_session *session, int32_t stream_id,
 
     ssize_t bytes_written = buf_data_total(buffer);
     printf("%.*s\n", bytes_written, buf);
-    buf_destroy(buffer);
+    //buf_destroy(buffer);
+    free(buffer);
 
     return bytes_written;
 }

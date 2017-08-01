@@ -79,12 +79,13 @@ static enum mad_flow input(struct mad_stream *stream, buffer_t *buf, player_t *p
             //We both silence the output as well as wait a while by pushing silent samples into the i2s system.
             //This waits for about 200mS
             renderer_zero_dma_buffer();
+            vTaskDelay(20 / portTICK_PERIOD_MS);
         } else {
             //Read some bytes from the FIFO to re-fill the buffer.
             fill_read_buffer(buf);
 
             // break the loop if we have at least enough to decode a few of the smallest possible frame
-            if(buf_data_unread(buf) >= (MIN_FRAME_SIZE * 4))
+            //if(buf_data_unread(buf) >= (MIN_FRAME_SIZE * 4))
                 break;
         }
     }

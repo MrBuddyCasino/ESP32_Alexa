@@ -146,6 +146,19 @@ static void start_web_radio()
 #include "asio_http.h"
 #include "asio_http2.h"
 
+static void signal_strength()
+{
+    start_wifi();
+
+    wifi_ap_record_t ap_info;
+
+    while(1) {
+        esp_wifi_sta_get_ap_info(&ap_info);
+        printf("rssi: %" PRIi8 "\n", ap_info.rssi);
+        vTaskDelay(500 / portTICK_PERIOD_MS);
+    }
+}
+
 /**
  * entry point
  */
@@ -153,6 +166,8 @@ void app_main()
 {
     ESP_LOGI(TAG, "starting app_main()");
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+
+    //signal_strength();
 
     /* print MAC */
     uint8_t sta_mac[6];
@@ -173,7 +188,7 @@ void app_main()
     */
     renderer_init(create_renderer_config());
     audio_recorder_init();
-    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 8192, NULL, 1, NULL, 1);
+    xTaskCreatePinnedToCore(&alexa_task, "alexa_task", 16384, NULL, 1, NULL, 1);
 #endif
 
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());

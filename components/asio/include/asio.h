@@ -42,6 +42,7 @@ typedef size_t (*asio_on_data_transfer_t) (asio_task_t *task, unsigned char* buf
 
 struct asio_task_t
 {
+    char *name;
     asio_registry_t *registry;
     url_t *url;
     asio_task_state_t state;

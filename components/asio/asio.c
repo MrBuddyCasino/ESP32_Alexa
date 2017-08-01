@@ -48,8 +48,12 @@ void asio_registry_destroy(asio_registry_t *registry)
 
 int asio_registry_add_task(asio_registry_t *registry, asio_task_t *task)
 {
-    if(task->url) {
-        ESP_LOGI(TAG, "adding connection: %s", task->url->authority);
+    if(task->name) {
+        ESP_LOGI(TAG, "adding task: %s", task->name);
+    } else if(task->url) {
+        ESP_LOGI(TAG, "adding task: %s", task->url->authority);
+    } else {
+        ESP_LOGI(TAG, "adding task: %s", "<unknown>");
     }
 
     for (int i = 0; i < registry->max_tasks; i++) {
@@ -62,26 +66,32 @@ int asio_registry_add_task(asio_registry_t *registry, asio_task_t *task)
     return -1;
 }
 
-void asio_registry_remove_task(asio_task_t *conn)
+void asio_registry_remove_task(asio_task_t *task)
 {
-    if(conn == NULL) return;
+    if(task == NULL) return;
 
-    if(conn->url) {
-        ESP_LOGI(TAG, "removing connection: %s", conn->url->authority);
+    if(task->name) {
+        ESP_LOGI(TAG, "removing task: %s", task->name);
     }
 
-    asio_registry_t *registry = conn->registry;
+    asio_registry_t *registry = task->registry;
     for (int i = 0; i < registry->max_tasks; i++) {
-        if (registry->tasks[i] == conn) {
+        if (registry->tasks[i] == task) {
             registry->tasks[i] = NULL;
             break;
         }
     }
 
-    free(conn->proto_ctx);
-    free(conn->io_ctx);
-    url_free(conn->url);
-    free(conn);
+    // TODO
+    //if(task->name != NULL)
+        //free(task->name);
+
+    //if(task->proto_ctx != NULL)
+    //    free(task->proto_ctx);
+
+    //free(task->io_ctx);
+    //url_free(task->url);
+    free(task);
 
     ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
 }

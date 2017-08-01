@@ -17,7 +17,7 @@
 #include "brssl.h"
 #include "nghttp2/nghttp2.h"
 
-#include "../nghttp_client/include/nghttp2_client.h"
+#include "nghttp2_client.h"
 #include "asio.h"
 #include "asio_socket.h"
 #include "asio_secure_socket.h"
