@@ -67,11 +67,6 @@ GPIO22        - DATA
 
 If you're using the MAX98357A, connect GND to ground and Vin to +5V (or +3.3V if +5V is unavailable). SD can remain unconnected, and GAIN too unless you want to make it louder or lower. I also recommend using a potentiometer for volume regulation.
 
-## Running without the I2S DAC
-
-The ESP32 has a built-in 8-Bit DAC that we can use. Unfortunately that part isn't working yet, patches welcome!
-The functionality is activated by uncommenting "#define USE_DAC" in playerconfig.h.
-
 ## Connecting the I2S microphone
 
 Connect the I2S microphone like this:
