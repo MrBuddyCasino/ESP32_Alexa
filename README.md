@@ -95,4 +95,4 @@ You need two Neopixels, simply chain them and connect data to GPIO_NUM_4.
 
 ## Demo
 
-See this crappy video: https://www.youtube.com/watch?v=xRobZAVO_Io&feature=youtu.be
+See this crappy video: https://www.youtube.com/watch?v=xRobZAVO_Io
