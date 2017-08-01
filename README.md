@@ -23,6 +23,10 @@ You need to have an authentication token.
 2. got to https://alexa.boeckling.net/ and create a new authentication token
 3. enter that token into the configuration option via menuconfig
 
+## How To Use It
+
+Once everything is setup, let it boot. A maniacal laugh will confirm that it is ready to receive orders. Press the GPIO0 button on your dev board to activate the microphone.
+
 ## Downloading Required Software
 
 Get the SDK:
