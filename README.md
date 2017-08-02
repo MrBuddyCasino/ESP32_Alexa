@@ -19,7 +19,7 @@ Configure the project via menuconfig, there is an "Alexa config" menu.
 
 You need to have an authentication token.
 
-1. write down your ESP32's MAC address
+1. write down your ESP32's MAC address, its printed to the console on startup
 2. got to https://alexa.boeckling.net/ and create a new authentication token
 3. enter that token into the configuration option via menuconfig
 
