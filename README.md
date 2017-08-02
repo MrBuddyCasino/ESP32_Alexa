@@ -83,8 +83,8 @@ GPIO05   - DATA
 ```
 
 These are known to work:
-https://www.tindie.com/products/onehorse/ics43434-i2s-digital-microphone/
-https://www.adafruit.com/product/3421
+- https://www.tindie.com/products/onehorse/ics43434-i2s-digital-microphone/
+- https://www.adafruit.com/product/3421
 
 The ICS-43434 is higher quality than the SPH0645LM4H.
 
