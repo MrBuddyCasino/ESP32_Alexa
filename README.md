@@ -95,3 +95,7 @@ You need two Neopixels, simply chain them and connect data to GPIO_NUM_4.
 ## Demo
 
 See this crappy video: https://www.youtube.com/watch?v=xRobZAVO_Io
+
+## License
+Mozilla Public License 2.0. Here is a summary of what this means: https://choosealicense.com/licenses/
+
