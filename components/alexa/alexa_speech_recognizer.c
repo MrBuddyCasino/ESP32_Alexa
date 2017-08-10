@@ -10,7 +10,7 @@
 #include <string.h>
 #include <stdbool.h>
 
-#include "freertos/freertos.h"
+#include "freertos/FreeRTOS.h"
 #include "esp_system.h"
 #include "esp_log.h"
 
