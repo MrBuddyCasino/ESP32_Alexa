@@ -611,6 +611,8 @@ typedef struct {
 } ssl_ctx_t;
 
 
+extern int os_get_random(unsigned char *buf, size_t len);
+
 asio_result_t asio_ssl_connect(asio_task_t *conn)
 {
     ssl_ctx_t *io_ctx = conn->io_ctx;
@@ -860,6 +862,11 @@ asio_result_t asio_ssl_connect(asio_task_t *conn)
         }
         br_ssl_client_set_client_certificate(io_ctx->cc, &io_ctx->zc->vtable);
     }
+
+    /* inject entropy */
+    unsigned char tmp[32];
+    os_get_random(tmp, sizeof(tmp));
+    br_ssl_engine_inject_entropy(io_ctx->cc, tmp, sizeof(tmp));
 
     br_ssl_engine_set_buffer(&io_ctx->cc->eng, io_ctx->iobuf, iobuf_len, io_ctx->bidi);
     br_ssl_client_reset(io_ctx->cc, conn->url->host, 0);
