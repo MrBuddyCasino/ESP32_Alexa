@@ -261,9 +261,10 @@ asio_result_t led_ui_init(gpio_num_t gpio_pin, uint16_t num_leds)
     px.items = malloc(sizeof(rmt_item32_t) * ((px.pixel_count * 32) + 1));
     px.pixels = malloc(sizeof(pixel_t) * px.pixel_count);
 
-    rmt_config_t rx = NEOPIXEL_RMT_INIT_CONFIG_DEFAULT(GPIO_NUM_4, 0);
+    rmt_config_t rx = NEOPIXEL_RMT_INIT_CONFIG_DEFAULT(gpio_pin, 0);
     ESP_ERROR_CHECK(rmt_config(&rx));
     ESP_ERROR_CHECK(rmt_driver_install(RMT_CHANNEL_0, 0, 0));
+    ESP_ERROR_CHECK(rmt_set_pin(RMT_CHANNEL_0, RMT_MODE_TX, gpio_pin));
 
     np_clear(&px);
     np_show(&px);
