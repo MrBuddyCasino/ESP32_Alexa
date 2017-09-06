@@ -97,6 +97,11 @@ You need two Neopixels, simply chain them and connect data to GPIO_NUM_4.
 
 See this crappy video: https://www.youtube.com/watch?v=xRobZAVO_Io
 
+## Purpose-Built Hardware
+
+Microwavemont, the worlds fastest maker cavy, made a board specifically for this project. I can confirm it works out of the box! Get it here:
+https://www.tindie.com/products/microwavemont/esp32-adb-edge/
+
 ## License
 Mozilla Public License 2.0. Here is a summary of what this means: https://choosealicense.com/licenses/
 
