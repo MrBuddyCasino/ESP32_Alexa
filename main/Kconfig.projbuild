@@ -79,6 +79,25 @@ config ALEXA_LOCALE
     default "en-GB" if ALEXA_LOCALE_EN_GB
     default "de-DE" if ALEXA_LOCALE_DE_DE
 
+
+choice
+    prompt "GPIO Pin"
+    default GPIO_NUM_0
+    help
+        Select GPIO pin to activate voice recognition.
+
+    config GPIO_NUM_0
+        bool "GPIO 0"
+    config GPIO_NUM_2
+        bool "GPIO 2"
+endchoice
+
+config ALEXA_GPIO_NUM
+    int
+    default 0 if GPIO_NUM_0
+    default 2 if GPIO_NUM_2
+
+
 config ALEXA_AUTH_REFRESH_TOKEN
 	string "Authentication Token"
 	help

@@ -585,7 +585,7 @@ int alexa_init()
     // create I2S config
     // configure_audio_hw(alexa_session->player_config);
 
-    asio_new_gpio_task(alexa_session->registry, GPIO_NUM_0, alexa_gpio_handler, alexa_session);
+    asio_new_gpio_task(alexa_session->registry, CONFIG_ALEXA_GPIO_NUM, alexa_gpio_handler, alexa_session);
 
     /* refresh auth token when wifi is connected */
     asio_new_generic_task("refresh_auth_token", alexa_session->registry, on_wifi_connected_cb, alexa_session->event_group, alexa_session);
