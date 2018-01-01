@@ -12,6 +12,9 @@ This is a work in progress version of an Alexa client.
 </ul>
 
 ## Configuration
+Before Configuring you need to execute this command from within the /ESP32-Alexa folder.
+
+    git submodule init && git submodule update
 
 Configure the project via menuconfig, there is an "Alexa config" menu.
 
