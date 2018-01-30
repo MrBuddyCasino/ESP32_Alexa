@@ -27,7 +27,6 @@
 #include "wifi.h"
 #include "app_main.h"
 #include "alexa_public.h"
-#include "mdns_task.h"
 #ifdef CONFIG_BT_SPEAKER_MODE
 #include "bt_speaker.h"
 #endif
@@ -83,9 +82,6 @@ static void start_wifi()
 
     /* init wifi */
     initialise_wifi(wifi_event_group);
-
-    /* start mDNS */
-    // xTaskCreatePinnedToCore(&mdns_task, "mdns_task", 2048, wifi_event_group, 5, NULL, 0);
 
     /* Wait for the callback to set the CONNECTED_BIT in the event group. */
     xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
