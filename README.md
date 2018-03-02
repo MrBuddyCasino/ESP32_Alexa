@@ -49,6 +49,12 @@ Add /path/to/xtensa-esp32-elf/bin to your PATH:
 
     export PATH=/path/to/xtensa-esp32-elf/bin:$PATH
 
+Clone this repository:
+
+    git clone https://github.com/MrBuddyCasino/ESP32_Alexa.git
+    cd ESP32_Alexa/
+    git submodule init && git submodule update
+
 ## Building
 
 Execute 'make menuconfig' and configure your serial port, leave the rest at default settings and then execute 'make flash'.
