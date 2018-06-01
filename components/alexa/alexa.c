@@ -39,6 +39,7 @@
 #include "url_parser.h"
 
 #include "wifi.h"
+#include "sdkconfig.h"
 
 
 #include "asio.h"
@@ -60,6 +61,7 @@ struct alexa_session_struct_t
     EventGroupHandle_t event_group;
     alexa_stream_t *stream_directives;
     alexa_stream_t *stream_events;
+    alexa_stream_t *stream_ping;
     asio_registry_t *registry;
 };
 
@@ -68,11 +70,13 @@ static alexa_session_t *alexa_session;
 const int AUTH_TOKEN_VALID_BIT = BIT(2);
 const int DOWNCHAN_CONNECTED_BIT = BIT(3);
 const int INITIAL_STATE_SENT_BIT = BIT(4);
+//#define REFRESH_TOKEN "Atzr|IwEBIJxHw2Xg2PCgRYBoesycfa4ZjMN5AGSe8uRchSwdVskPXtt4Vl982jVz994u1fuDMLTR5oytHAm1J_KECqPrTK0l5AoBHSem8gjVrhDwslwMWic4B21heKtxZLGVNIFbHfxbbm7f3EV-XT7ruH5aCGB3kmp0Kif_XgvxjRFPsm8Y8s2jHhQB44YQ6N4aANU6qjyxlNd8beYildvv97luyoIFExX_B6Cb4CISlPqAcfml0iqWOzD_Q8F2PEn3Wc5_aLZHkngoSisMDPfoehXW9gTay0zrrP06okz6M--cZrtJykrIncs0aCO8smLP7uuNfY4uuwKraFo9YsXgtCi-2Bsvr-f5uVTr2j2BpTHrOzsz6OWlMIO1XQmYnDL9OIQZ3J-Dz2zbBFTpSq7j1x1nOdb8Ja7rkmO_HrM1CQnSEYjvhCsJrYvAv9dFJ-8MpNYKGTf0iZBbqo65fJ40dfMe5JWZEguPxmQvBWW2Rkn5z03dL1jqqCtRjk9IjBmdVwzpbyneeDt5D3oqOqHG0df9s7A01KcHubU62LG3e33FSzVNdg"
 
 
 /* Europe: alexa-eu / America: alexa-na */
 static char *uri_directives = ALEXA_ENDPOINT "/v20160207/directives";
 static char *uri_events = ALEXA_ENDPOINT "/v20160207/events";
+static char *uri_ping = ALEXA_ENDPOINT "/ping";
 
 #define TAG "alexa"
 
@@ -159,6 +163,14 @@ static int create_alexa_session(alexa_session_t **alexa_session_ptr)
     alexa_session->stream_events->stream_id = -1;
     alexa_session->stream_events->msg_id = 1;
     alexa_session->stream_events->dialog_req_id = 1;
+
+    alexa_session->stream_ping = calloc(1, sizeof(alexa_stream_t));
+    alexa_session->stream_ping->stream_type = STREAM_PING;
+    alexa_session->stream_ping->alexa_session = alexa_session;
+    alexa_session->stream_ping->status = CONN_CLOSED;
+    alexa_session->stream_ping->stream_id = -1;
+    alexa_session->stream_ping->msg_id = 1;
+    alexa_session->stream_ping->dialog_req_id = 1;
 
     return 0;
 }
@@ -439,6 +451,7 @@ int open_downchannel(alexa_session_t *alexa_session)
 
     alexa_session->stream_directives->http2_session = http2_session;
     alexa_session->stream_events->http2_session = http2_session;
+    alexa_session->stream_ping->http2_session = http2_session;
 
     /* start read write loop */
     //ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
@@ -483,6 +496,33 @@ int alexa_send_event(alexa_session_t *alexa_session,
 }
 
 
+int alexa_send_ping(alexa_session_t *alexa_session,
+        nghttp2_data_source_read_callback read_callback)
+{
+
+ESP_LOGE(TAG, "PING");
+    // h2 will take ownership
+    nghttp2_data_provider data_provider_struct = {
+            .read_callback = read_callback,
+            .source.ptr = alexa_session->stream_ping
+    };
+
+    // add headers
+    char *auth_header = build_auth_header(alexa_session->auth_token);
+    // ESP_LOGI(TAG, "authorization length=%d value=%s", strlen(auth_header), auth_header);
+    nghttp2_nv hdrs[2] = {
+    MAKE_NV("authorization", auth_header, strlen(auth_header))};
+
+    /* create stream */
+    int ret = nghttp_new_stream(alexa_session->stream_directives->http2_session,
+            &alexa_session->stream_events->stream_id,
+            alexa_session->stream_events, uri_ping, "GET", hdrs, 1,
+            &data_provider_struct);
+
+    free(auth_header);
+
+    return ret;
+}
 
 void alexa_gpio_handler_task(gpio_handler_param_t *params)
 {
@@ -567,6 +607,22 @@ asio_result_t on_wifi_connected_cb(asio_task_t *task, void *arg, void *user_data
     return ASIO_OK;
 }
 
+#define TICKS_TO_DELAY 4 * 60 * 1000  // 1000 - is it 1000 ms or is it 1000 ticks???
+void delayed_server_ping_task(void* p){
+    TickType_t last_wake_time;
+    TickType_t ticks_before_delay;
+
+    last_wake_time = xTaskGetTickCount();
+    ticks_before_delay = last_wake_time;
+
+    while(1){
+        // maybe it is over thinking to use vTaskDelayUntil()?
+        // probably vTaskDelay() would be enough
+        vTaskDelayUntil(&last_wake_time, TICKS_TO_DELAY );
+        event_send_ping(alexa_session);
+    }
+}
+
 int alexa_init()
 {
     ESP_LOGI(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
@@ -597,6 +653,8 @@ int alexa_init()
     /* send initial state when downchannel is connected */
     asio_new_generic_task("send_initial_state", alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
 
+    /* create task to send ping request to keep connection socket open */
+    xTaskCreatePinnedToCore(delayed_server_ping_task, "ping", 2048, NULL, 5, NULL, 0);
     // run event loop
     while(1) {
         asio_registry_poll(alexa_session->registry);
