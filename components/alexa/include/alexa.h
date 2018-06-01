@@ -43,7 +43,7 @@ typedef enum
 } part_type_t;
 
 typedef enum {
-    STREAM_DIRECTIVES, STREAM_EVENTS
+    STREAM_DIRECTIVES, STREAM_EVENTS, STREAM_PING
 } stream_type_t ;
 
 typedef struct

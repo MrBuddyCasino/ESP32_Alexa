@@ -28,8 +28,9 @@
 
 #define TAG "auth_handler"
 
-
-#define REFRESH_TOKEN CONFIG_ALEXA_AUTH_REFRESH_TOKEN
+#define REFRESH_TOKEN "Atzr|IwEBIEjUTkPyaaA9U3oKJ5FPHs2jVxLU34wcVpRxYxJxyGI85cw5b5TgUy2nknccmfXIMYBmSleKKR14TwXIzwGT7Auahi9RXS_S3NJSCCFCENImuvSMbGeyuEZH9aBybYhDmA1KkMgNFCHovv4eORfck_KKoRWHCeMCH6fD2ZhDy6wxzOahqxbzpa4HY11yQDVJ2q1PM1tjbIT-xTysk785gVdru_itlWiGCb4n-Ip1rfsG9ysMHxG87oTvmjUIoNTNgb_g2u0Ye-ouaKGLdOAGsBhANYfhWYMWgxJDvP9d4qb0NYHwUUSIgyUxF7ZmozXEzZk4kT1xZNY097kYrVvTEznZKc6185V-dDxE0_9_BHIZi0KKBIuPA3gwhAyEBeaeHPfmNo3wPpfbQ6lyScfoFq5eFSXpDukUZk1IUAg6kkli50E6d0ppQSzUONVrsgrgzFL23awD8W4IUunUs6_T-HYzd2_p-SQyD-59ETFwwuo_J0WdCfCimeAKbF8GgAxqlKFW4pjY1AgsBdD3ce61Gu7SBR_NJGrsJtWsQ18KPnAp6A"
+//#define REFRESH_TOKEN CONFIG_ALEXA_AUTH_REFRESH_TOKEN
+//#define REFRESH_TOKEN "Atzr|IwEBIJxHw2Xg2PCgRYBoesycfa4ZjMN5AGSe8uRchSwdVskPXtt4Vl982jVz994u1fuDMLTR5oytHAm1J_KECqPrTK0l5AoBHSem8gjVrhDwslwMWic4B21heKtxZLGVNIFbHfxbbm7f3EV-XT7ruH5aCGB3kmp0Kif_XgvxjRFPsm8Y8s2jHhQB44YQ6N4aANU6qjyxlNd8beYildvv97luyoIFExX_B6Cb4CISlPqAcfml0iqWOzD_Q8F2PEn3Wc5_aLZHkngoSisMDPfoehXW9gTay0zrrP06okz6M--cZrtJykrIncs0aCO8smLP7uuNfY4uuwKraFo9YsXgtCi-2Bsvr-f5uVTr2j2BpTHrOzsz6OWlMIO1XQmYnDL9OIQZ3J-Dz2zbBFTpSq7j1x1nOdb8Ja7rkmO_HrM1CQnSEYjvhCsJrYvAv9dFJ-8MpNYKGTf0iZBbqo65fJ40dfMe5JWZEguPxmQvBWW2Rkn5z03dL1jqqCtRjk9IjBmdVwzpbyneeDt5D3oqOqHG0df9s7A01KcHubU62LG3e33FSzVNdg"
 #define REFRESH_TOKEN_URI "https://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN
 
 
@@ -114,7 +115,7 @@ void auth_token_refresh(alexa_session_t *alexa_session)
         ESP_LOGI(TAG, "nghttp_new_session finished with %d", ret);
         return;
     }
-
+    
     asio_registry_t *registry = get_io_context(alexa_session);
     asio_new_http2_session(
             registry,
