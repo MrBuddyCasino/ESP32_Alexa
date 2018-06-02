@@ -52,5 +52,5 @@ ssize_t send_ping_cb(nghttp2_session *session, int32_t stream_id,
 
 int event_send_ping(alexa_session_t *alexa_session)
 {
-    return alexa_send_event(alexa_session, send_ping_cb);
+    return alexa_send_ping(alexa_session, send_ping_cb);
 }

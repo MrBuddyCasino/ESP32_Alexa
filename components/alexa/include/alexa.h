@@ -30,6 +30,8 @@ void auth_token_refresh(alexa_session_t *alexa_session);
 
 int alexa_send_event(alexa_session_t *alexa_session, nghttp2_data_source_read_callback read_callback);
 
+int alexa_send_ping(alexa_session_t *alexa_session, nghttp2_data_source_read_callback read_callback);
+
 extern const int AUTH_TOKEN_VALID_BIT;
 extern const int DOWNCHAN_CONNECTED_BIT;
 
