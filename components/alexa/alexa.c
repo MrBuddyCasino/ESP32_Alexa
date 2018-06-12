@@ -87,6 +87,11 @@ static char *uri_ping = ALEXA_ENDPOINT "/ping";
 extern uint8_t file_start[] asm("_binary_what_time_raw_start");
 extern uint8_t file_end[] asm("_binary_what_time_raw_end");
 
+/* forward-declare some stuff */
+asio_result_t on_auth_token_valid_cb(asio_task_t *conn, void *arg, void *user_data);
+asio_result_t on_downchan_connected_cb(asio_task_t *task, void *arg, void *user_data);
+
+
 
 EventGroupHandle_t get_event_group(alexa_session_t *alexa_session)
 {
@@ -403,6 +408,22 @@ static int on_frame_recv_callback(nghttp2_session *session,
                             DOWNCHAN_CONNECTED_BIT);
                 }
             }
+            break;
+
+        case NGHTTP2_GOAWAY:
+            // hacky workaround
+            ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+            ESP_LOGI(TAG, "frame received: %u", frame->hd.type);
+            nghttp2_submit_rst_stream(session, NGHTTP2_FLAG_NONE, alexa_session->stream_directives->stream_id, NGHTTP2_STREAM_CLOSED);
+            alexa_session->stream_directives->status = CONN_CLOSED;
+            xEventGroupClearBits(alexa_session->event_group, DOWNCHAN_CONNECTED_BIT);
+            auth_token_refresh(alexa_session);
+
+            ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
+            asio_new_generic_task("downchannel", alexa_session->registry, on_auth_token_valid_cb, alexa_session->event_group, alexa_session);
+            /* send initial state when downchannel is connected */
+            asio_new_generic_task("send_initial_state", alexa_session->registry, on_downchan_connected_cb, alexa_session->event_group, alexa_session);
+            ESP_LOGW(TAG, "%d: - RAM left %d", __LINE__, esp_get_free_heap_size());
             break;
 
         default:
