@@ -28,7 +28,6 @@
 
 #define TAG "auth_handler"
 
-
 #define REFRESH_TOKEN CONFIG_ALEXA_AUTH_REFRESH_TOKEN
 #define REFRESH_TOKEN_URI "https://alexa.boeckling.net/auth/refresh/" REFRESH_TOKEN
 
@@ -114,7 +113,7 @@ void auth_token_refresh(alexa_session_t *alexa_session)
         ESP_LOGI(TAG, "nghttp_new_session finished with %d", ret);
         return;
     }
-
+    
     asio_registry_t *registry = get_io_context(alexa_session);
     asio_new_http2_session(
             registry,
